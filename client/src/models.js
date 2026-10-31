@@ -625,6 +625,7 @@ export function buildPuzzles(scene, level, M, tex) {
     return beamMats.get(c);
   };
   for (const z of level.hazards) {
+    if (z.kind === 'fire') continue; // Flammen zeichnet elements3d.js
     const g = new THREE.Group();
     const w = [z.max[0] - z.min[0], z.max[1] - z.min[1], z.max[2] - z.min[2]];
     if (z.kind === 'laser') {

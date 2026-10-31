@@ -11,6 +11,7 @@ import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
 import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 import { Rig } from './anim.js';
 import { Splats } from './splat.js';
+import { elementMaterials, buildElements, updateElements } from './elements3d.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -57,6 +58,7 @@ export class Renderer {
     this.mats = this.makeMaterials();
     this.mm = modelMaterials(this.tex, this.mats);
     for (const k of ['machine', 'pipe', 'duct']) this.mats[k] = this.mm[k];
+    Object.assign(this.mats, elementMaterials()); // Becken, Schleusen, Flutkammern
 
     this.setupSky();
     this.setupLights();
@@ -68,6 +70,7 @@ export class Renderer {
     buildYard(this.scene, level, this.mm);
     this.windFx = buildWind(this.scene, level);
     this.puzzles = buildPuzzles(this.scene, level, { ...this.mm, hazard: this.mats.hazard }, this.tex);
+    this.elements = buildElements(this.scene, level, this.mm); // Feuer und Wasser
     this.buildMovers();
     this.buildDecor();
     this.buildSigns();
@@ -755,6 +758,11 @@ export class Renderer {
       const tension = Math.min(1, Math.max(0, (d / L - 0.9) * 8));
       mesh.material.color.setRGB(0.85 + 0.1 * tension, 0.7 - 0.45 * tension, 0.42 - 0.25 * tension);
     }
+  }
+
+  // Feuer, Wasser, Löscher und Schwimmlage (nach den Figuren, vor dem Zeichnen)
+  updateElements(dt, people, focus) {
+    updateElements(this.elements, dt, people, this, focus, settings.get().quality);
   }
 
   // views (Splitscreen, optional): [{ pos, look, focus }] je Ansicht – Kamera-Position,

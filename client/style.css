@@ -288,3 +288,12 @@ body[data-device=pad] .pad-tip { display: inline; }
 .osk-hint { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin-top: 10px; font-size: 12px; color: #4a4438; }
 .osk-hint b { display: inline-block; min-width: 20px; padding: 1px 5px; margin-right: 4px; border-radius: 10px; background: #22201c; color: #f3ead6; font-size: 11px; text-align: center; }
 @media (max-width: 520px) { .osk { padding: 6px; } .osk-row { gap: 4px; } .osk-row button { padding: 10px 0; font-size: 15px; } }
+
+/* Feuer und Wasser */
+#underwater { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s; z-index: 4;
+  background: radial-gradient(ellipse at center, rgba(40, 150, 170, 0.28) 0%, rgba(10, 60, 80, 0.62) 100%); }
+#underwater.on { opacity: 1; }
+#hud-elements { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+#hud-elements span { font-size: 13px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+#hud-elements .el-ext { background: rgba(200, 30, 30, 0.85); color: #fff; }
+#hud-elements .el-wet { background: rgba(40, 140, 200, 0.85); color: #fff; }
