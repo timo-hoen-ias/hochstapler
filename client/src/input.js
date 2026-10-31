@@ -27,7 +27,7 @@ export function readPad(gp, prev, dt, enabled) {
   const b = (i) => !!gp.buttons[i]?.pressed;
   const v = (i) => gp.buttons[i]?.value || 0;
   const pressed = (i) => b(i) && !prev[i];
-  const out = { fx: 0, rx: 0, lookX: 0, lookY: 0, zoom: 0, jump: false, brace: false, emote: -1, pause: pressed(9), reset: pressed(8), any: false };
+  const out = { fx: 0, rx: 0, lookX: 0, lookY: 0, zoom: 0, jump: false, up: false, use: false, brace: false, emote: -1, pause: pressed(9), reset: pressed(8), any: false };
   const lx = deadzone(gp.axes[0] || 0), ly = deadzone(gp.axes[1] || 0);
   const rxs = deadzone(gp.axes[2] || 0), rys = deadzone(gp.axes[3] || 0);
   out.any = !!(lx || ly || rxs || rys || gp.buttons.some((x) => x.pressed));
@@ -38,8 +38,10 @@ export function readPad(gp, prev, dt, enabled) {
     out.lookX = -Math.sign(rxs) * rxs * rxs * 3.2 * ps * dt;
     out.lookY = Math.sign(rys) * rys * rys * 2.2 * ps * dt * (settings.get().invertY ? -1 : 1);
     out.jump = pressed(0);
+    out.up = b(0); // gehalten: z. B. Gabel heben
+    out.use = pressed(2); // X: Maschine/Hebel benutzen
     out.brace = b(1) || b(5) || b(7) || v(6) > 0.3 || v(7) > 0.3;
-    if (pressed(2)) out.emote = 0;
+    if (pressed(14)) out.emote = 0;
     if (pressed(3)) out.emote = 1;
     if (pressed(4)) out.emote = 2;
     if (b(12)) out.zoom -= 8 * dt;
@@ -67,7 +69,7 @@ export class PadInput {
   setEnabled(on) { this.enabled = on; if (!on) this.jumpQueued = false; }
 
   poll(dt) {
-    const out = { forward: 0, right: 0, brace: false, jump: false, lookX: 0, lookY: 0, zoom: 0 };
+    const out = { forward: 0, right: 0, brace: false, jump: false, up: false, use: false, lookX: 0, lookY: 0, zoom: 0 };
     const gp = this.pad();
     if (!gp) return out;
     const r = readPad(gp, this.prev, dt, this.enabled);
@@ -78,7 +80,7 @@ export class PadInput {
     const len = Math.hypot(r.fx, r.rx);
     out.forward = len > 1 ? r.fx / len : r.fx;
     out.right = len > 1 ? r.rx / len : r.rx;
-    out.brace = r.brace; out.jump = r.jump;
+    out.brace = r.brace; out.jump = r.jump; out.up = r.up; out.use = r.use;
     out.lookX = r.lookX; out.lookY = r.lookY; out.zoom = r.zoom;
     return out;
   }
@@ -126,6 +128,7 @@ export class Input {
       this.setDevice('kbm');
       if (!this.enabled) return;
       if (e.code === 'Space') { if (!this.keys.has('Space')) this.jumpQueued = true; e.preventDefault(); }
+      if (e.code === 'KeyG' && !e.repeat) this.useQueued = true;
       if ((e.code === 'Backspace' || e.code === 'KeyT') && !e.repeat && this.enabled && e.target.tagName !== 'INPUT') { e.preventDefault(); this.h.reset?.(); }
       this.keys.add(e.code);
       const em = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code];
@@ -244,7 +247,9 @@ export class Input {
       el.addEventListener('pointercancel', up);
       el.addEventListener('pointerleave', up);
     };
-    hold(root.querySelector('[data-act=jump]'), () => { if (this.enabled) this.jumpQueued = true; });
+    hold(root.querySelector('[data-act=jump]'), () => { if (this.enabled) this.jumpQueued = true; t.jump = true; }, () => { t.jump = false; });
+    const ub = root.querySelector('[data-act=use]');
+    if (ub) hold(ub, () => { if (this.enabled) this.useQueued = true; });
     hold(root.querySelector('[data-act=brace]'), () => { t.brace = true; }, () => { t.brace = false; });
     const emoteBtns = root.querySelectorAll('[data-emote]');
     emoteBtns.forEach((b) => hold(b, () => this.h.emote?.(Number(b.dataset.emote))));
@@ -279,7 +284,7 @@ export class Input {
 
   // ───────── Abfrage pro Frame ─────────
   poll(dt) {
-    let fx = 0, rx = 0, brace = false;
+    let fx = 0, rx = 0, brace = false, up = false, use = false;
     const k = this.keys;
     if (this.enabled) {
       if (k.has('KeyW') || k.has('ArrowUp')) fx += 1;
@@ -291,12 +296,14 @@ export class Input {
       if (k.has('KeyR')) this.lookY -= 1.4 * dt;
       if (k.has('KeyF')) this.lookY += 1.4 * dt;
       brace = k.has('ShiftLeft') || k.has('ShiftRight') || this.mouseBrace;
+      up = k.has('Space');
     }
 
     // Touch
     const t = this.touch;
     if (t.move && this.enabled) { rx += t.move.x; fx -= t.move.y; }
     if (t.brace && this.enabled) brace = true;
+    if (t.jump && this.enabled) up = true;
 
     // Gamepad
     const gp = this.gamepad();
@@ -315,6 +322,8 @@ export class Input {
         this.lookX += r.lookX; this.lookY += r.lookY; this.zoom += r.zoom;
         if (r.jump) this.jumpQueued = true;
         if (r.brace) brace = true;
+        if (r.up) up = true;
+        if (r.use) this.useQueued = true;
         if (r.emote >= 0) this.h.emote?.(r.emote);
       }
       this.pad.prev = gp.buttons.map((x) => x.pressed);
@@ -325,9 +334,11 @@ export class Input {
     const out = {
       forward: fx, right: rx, brace,
       jump: this.jumpQueued && this.enabled,
+      up, use: this.useQueued && this.enabled,
       lookX: this.lookX, lookY: this.lookY, zoom: this.zoom,
     };
     this.jumpQueued = false;
+    this.useQueued = false;
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     return out;
   }

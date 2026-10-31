@@ -5,7 +5,7 @@ import { buildLevel, phaseOf, BLINK_WARN } from '../client/src/level.js';
 import { Colliders, createBody, stepBody, PHYS } from '../client/src/physics.js';
 import { simHookFrom, simToHook, simLadder } from './sim-grips.mjs';
 
-const level = buildLevel();
+const level = buildLevel(process.env.SEED ? { seed: Number(process.env.SEED) } : {});
 const world = new Colliders(level);
 // Rätsel gelten als gelöst (Druckplatten gedrückt); Gefahren bleiben aktiv
 world.forceOpen = true;
@@ -31,6 +31,7 @@ function startTime(A, B) {
 for (let i = 1; i < level.path.length; i++) {
   if (only !== null && i !== only) continue;
   const A = level.path[i - 1], B = level.path[i];
+  if (B.how === 'coop' || B.how === 'machine') continue; // eigene Prüfung in test-arenas.mjs
   tested++;
   // Haken und Leitern haben eigene Abläufe
   if (A.kind === 'hook' || B.kind === 'hook' || B.how === 'ladder') {

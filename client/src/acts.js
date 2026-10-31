@@ -255,7 +255,9 @@ export function buildActs(k) {
     wind(T, g) {
       const bs = [];
       const n = 3;
-      for (let i = 0; i < n; i++) bs.push(S(i ? (rnd() < 0.7 ? 'f' : turn()) : 'f', R(1.4, 2.0), R(0.0, 0.6), R(2.2, 3), 0.35 - 0.1 * g, T.beam));
+      // Immer geradeaus: der Wind kommt dann quer. Nach einer Kurve käme er von hinten oder
+      // vorn und trüge einen über den schmalen Träger hinaus (in der Simulation unschaffbar).
+      for (let i = 0; i < n; i++) { if (i) rnd(); bs.push(S('f', R(1.4, 2.0), R(0.0, 0.6), R(2.2, 3), 0.35 - 0.1 * g, T.beam)); }
       const r = k.dirVec(turn());
       const span = {
         min: [Math.min(...bs.map((b) => b.min[0])) - 1, Math.min(...bs.map((b) => b.max[1])) - 0.5, Math.min(...bs.map((b) => b.min[2])) - 1],
@@ -427,7 +429,10 @@ export function buildActs(k) {
         recent.push(name);
       }
       plan[3 + (si % 3)] = T.puzzles[si % 2];
+      // Große Rätsel-Plattform mit Maschine (arenas.js), einmal je Akt – sobald Platz ist
+      if (si === 3) k.queueArena(T);
       plan.forEach((name, i) => {
+        k.tryArenas();
         place(name, T, g);
       });
     }

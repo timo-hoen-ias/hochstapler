@@ -10,6 +10,7 @@ import { settings } from './settings.js';
 import { audio } from './audio/index.js';
 import { animCode, decodeAnim } from './anim.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
+import { MachineControl } from './machinectl.js';
 
 // Blickrichtung für die Figur: an einer Kante zur Wand gedreht
 function visYaw(b) {
@@ -127,6 +128,9 @@ class Game {
     this.locals = [];
     this.view.locals = this.locals; // Kranhaken folgen den Händen lokaler Spieler
     this.remotes = new Map();
+    // Rätsel-Maschinen (Gabelstapler, Kräne, Aufzüge, Draisinen) und Hebel
+    this.mc = new MachineControl(this);
+    this.view.setMachines?.(this.mc);
     this.camYaw = 0; // gemeinsame Kamera (ein Spieler oder Splitscreen aus)
     this.camPitch = 0.35;
     this.camDist = 7.5;
@@ -159,7 +163,7 @@ class Game {
       message: (m) => this.onMessage(m),
       offline: (wasOnline) => {
         this.toast(solo ? (this.locals.length > 1 ? `Lokaler Koop zu ${this.locals.length}. – viel Erfolg!` : 'Solo-Training – viel Erfolg!') : wasOnline ? 'Verbindung verloren – lokal weiter' : 'Kein Server erreichbar – lokal weiter');
-        for (const id of [...this.remotes.keys()]) this.removeRemote(id);
+        for (const id of [...this.remotes.keys()]) { this.mc.dropId(id); this.removeRemote(id); }
         $('hud-room').textContent = solo ? (this.locals.length > 1 ? 'LOKAL' : 'SOLO') : 'LOKAL (offline)';
         // Weitere lokale Spieler spielen ohne Server weiter
         for (const lp of this.locals) if (lp !== p1 && lp.net) { lp.net.close(); lp.net = new Net(null, lp.name, {}); }
@@ -227,6 +231,7 @@ class Game {
 
   removeLocal(lp) {
     if (lp === this.p1) return;
+    this.mc.leave(lp, true);
     lp.net?.close();
     lp.input?.dispose?.();
     this.view.removeAvatar(lp.id);
@@ -251,6 +256,7 @@ class Game {
 
   setLocalId(lp, info) {
     const old = lp.id;
+    for (const m of this.mc.list) m.occ = m.occ.map((o) => (o === old ? info.id : o));
     Object.assign(lp, { id: info.id, name: info.name, slot: info.slot, color: info.color, team: info.team ?? 0, online: true });
     this.view.removeAvatar(old);
     this.view.createAvatar(lp.id, lp.name, lp.color);
@@ -274,6 +280,7 @@ class Game {
 
   // ───── Netzwerk ─────
   onMessage(m) {
+    if (this.mc.onMessage(m)) return;
     switch (m.t) {
       case 'welcome': {
         this.setLocalId(this.p1, m.you);
@@ -285,6 +292,7 @@ class Game {
         this.race = m.race || null;
         const others = m.players.filter((p) => !this.isLocal(p.id));
         for (const p of others) this.addRemote(p);
+        this.mc.welcome(m);
         if (this.mode === 'teams') this.view.setCheckpointReached(this.cpOf(this.p1));
         else this.setCheckpoint(m.cp || 0, false);
         // Neben einem Mitspieler (aus dem eigenen Team) starten, sonst am Zwischenstopp
@@ -321,6 +329,7 @@ class Game {
         break;
       }
       case 'leave':
+        this.mc.dropId(m.id);
         if (!this.remotes.has(m.id)) return;
         this.removeRemote(m.id);
         this.toast(`${m.name} hat sich abgeseilt`);
@@ -382,6 +391,7 @@ class Game {
       case 'restart':
         if (m.race) { this.race = m.race; this.tcp = [0, 0]; } else { this.startedAt = m.startedAt; this.played = 0; }
         this.setCheckpoint(0, false, true);
+        this.mc.reset();
         for (const lp of this.locals) this.respawn(lp, true);
         $('finish').classList.add('hidden');
         this.finished = false;
@@ -565,6 +575,7 @@ class Game {
       this.startedAt = Date.now() + (this.net.online ? this.net.offset : 0);
       this.played = 0;
       this.setCheckpoint(0, false, true);
+      this.mc.reset();
       for (const lp of this.locals) this.respawn(lp, true);
       this.finished = false;
       $('finish').classList.add('hidden');
@@ -677,7 +688,7 @@ class Game {
       let z = -cy * fx - sy * rx;
       const l = Math.hypot(x, z);
       if (l > 1) { x /= l; z /= l; }
-      return { x, z, jump: i.jump, brace: i.brace };
+      return { x, z, jump: i.jump, brace: i.brace, up: i.up, use: i.use, fx: i.forward, rx: i.right };
     });
   }
 
@@ -695,19 +706,24 @@ class Game {
     const step = this.clock.step;
     const tNow = this.net.time();
     // Sprung bleibt gemerkt, falls dieser Frame keinen Physikschritt hat (>120-Hz-Bildschirme)
-    locals.forEach((lp, k) => { if (inputs[k].jump) lp.jump = true; });
+    locals.forEach((lp, k) => { if (inputs[k].jump) lp.jump = true; this.mc.frameInput(lp, inputs[k]); });
     const steps = this.clock.frame(dt, false);
     // Druckplatten: Fußpunkte aller Spieler (lokal und online)
     const feet = [...locals.map((lp) => lp.body.pos), ...[...this.remotes.values()].map((r) => r.rpos)];
     this.world.updatePlates(feet, dt, feet.length > 1 ? 1.2 : 6);
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
+      this.mc.step(step, i === 0, feet);
       locals.forEach((lp, k) => {
         const b = lp.body;
         const vyBefore = b.vel[1];
         if (lp.dead > 0) return; // aufgeklatscht: liegt bis zum Neustart still
+        // Am Bedienplatz einer Maschine: festgemacht, die Eingaben steuern die Maschine
+        if (this.mc.pin(lp, step)) { lp.jump = false; if (b.zapped) audio.play('respawn'); return; }
+        this.world.mates = this.mc.mates(lp);
         stepBody(b, { ...inputs[k], jump: lp.jump }, this.world, step);
         lp.jump = false;
+        if (b.boosted) { audio.play('jump', { pos: b.pos }); if (!this.boostTold) { this.boostTold = true; this.toast('Räuberleiter!'); } }
         if (b.jumped) evs[k].jumped = true;
         if (b.zapped) { audio.play('respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
         if (b.justLanded) { evs[k].landed = true; evs[k].landSpeed = Math.max(evs[k].landSpeed, -vyBefore); }
@@ -816,6 +832,7 @@ class Game {
       }
     }
 
+    this.mc.after(dt);
     const views = this.updateCamera(dt);
     this.updateSplitLabels(views);
     // Hören wie Spieler 1: mit dessen Kamera
@@ -933,6 +950,7 @@ class Game {
 
   respawn(lp, toStart) {
     lp.dead = 0;
+    this.mc?.leave(lp, true);
     const cp = this.level.checkpoints[toStart ? 0 : this.cpOf(lp)];
     const pos = [...cp.pos];
     const slot = lp.slot || 0;

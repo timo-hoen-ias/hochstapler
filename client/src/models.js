@@ -188,6 +188,7 @@ export function buildShapes(scene, level, M) {
 export function buildLadders(scene, level, M) {
   const batch = new Batch();
   for (const l of level.ladders) {
+    if (l.flag || l.solo) continue; // Notleitern und Klappleitern zeichnet machines3d.js
     const [fx, fz] = l.face;
     // Wandseite der Leiterzone
     const wallX = fx > 0 ? l.min[0] : fx < 0 ? l.max[0] : null;
