@@ -1,0 +1,55 @@
+:root {
+  --ink: #f4f1e6;
+  --panel: rgba(18, 24, 36, 0.82);
+  --accent: #f2c014;
+  --accent2: #ff7a1a;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1d26; color: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+#app canvas { display: block; }
+.hidden { display: none !important; }
+
+.overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(30,25,40,0.55), rgba(10,10,20,0.85)); z-index: 20; }
+#lobby { background: linear-gradient(160deg, #2b2d5c 0%, #7c6aa3 45%, #f0a875 100%); }
+.card { width: min(440px, 100%); background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-top: 6px solid var(--accent); border-radius: 14px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); backdrop-filter: blur(6px); }
+.small-card { width: min(320px, 100%); text-align: center; }
+.logo { font-weight: 900; font-size: 44px; letter-spacing: 2px; line-height: 1; }
+.logo span { color: var(--accent); }
+.tag { margin: 8px 0 18px; opacity: 0.85; }
+label { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.9; margin-bottom: 12px; }
+input { width: 100%; margin-top: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.3); color: var(--ink); font-size: 18px; text-transform: none; }
+#room { text-transform: uppercase; letter-spacing: 3px; font-weight: 700; }
+.row { display: flex; gap: 8px; align-items: end; }
+button { cursor: pointer; border: 0; border-radius: 8px; font-size: 16px; font-weight: 700; padding: 12px 16px; }
+button.primary { width: 100%; background: var(--accent); color: #1a1a1a; margin-top: 6px; }
+button.primary:hover { filter: brightness(1.1); }
+button.ghost { background: rgba(255,255,255,0.1); color: var(--ink); margin-top: 6px; }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; margin-top: 18px; font-size: 13px; opacity: 0.9; }
+kbd { background: rgba(255,255,255,0.12); border-radius: 4px; padding: 1px 6px; font-family: inherit; font-size: 12px; border-bottom: 2px solid rgba(0,0,0,0.4); }
+.small { font-size: 13px; opacity: 0.75; margin-top: 16px; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#hud-left { position: absolute; left: 16px; top: 16px; background: var(--panel); padding: 12px 16px; border-radius: 10px; border-left: 5px solid var(--accent); min-width: 200px; }
+#hud-section { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
+#hud-height { font-size: 34px; font-weight: 900; }
+#hud-best, #hud-timer { font-size: 13px; opacity: 0.8; }
+#hud-right { position: absolute; right: 16px; top: 16px; background: var(--panel); padding: 10px 14px; border-radius: 10px; min-width: 190px; }
+#hud-room { font-size: 12px; opacity: 0.8; margin-bottom: 6px; letter-spacing: 1px; }
+.pl { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 3px 0; }
+.pl i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.pl b { margin-left: auto; font-variant-numeric: tabular-nums; opacity: 0.8; font-weight: 600; }
+#tension, #brace { position: absolute; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 6px; font-weight: 800; letter-spacing: 2px; font-size: 13px; }
+#tension { bottom: 90px; background: rgba(200,50,30,0.85); }
+#brace { bottom: 128px; background: rgba(242,192,20,0.9); color: #111; }
+#toasts { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.toast { background: var(--panel); padding: 8px 16px; border-radius: 8px; font-weight: 600; animation: fade 3.2s forwards; }
+@keyframes fade { 0% { opacity: 0; transform: translateY(8px); } 10% { opacity: 1; transform: none; } 80% { opacity: 1; } 100% { opacity: 0; } }
+#crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; background: rgba(255,255,255,0.6); border-radius: 50%; }
+#board { padding-left: 22px; }
+#board li { margin: 4px 0; }
+@media (max-width: 600px) {
+  #hud-left { min-width: 0; padding: 8px 10px; }
+  #hud-height { font-size: 24px; }
+  #hud-right { min-width: 0; }
+  .controls { grid-template-columns: 1fr; }
+}
