@@ -48,7 +48,8 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
   const yawF = Math.atan2(f[0], f[1]);
   const dirF = [f[0], f[1]];
   const dirR = [r[0] * m, r[1] * m];
-  const signText = (title, sub) => k.sign(title, sub);
+  // Nur der Name der Station – wie die Maschine geht, finden die Spieler selbst heraus
+  const signText = (title) => k.sign(title);
   // Leiter an einer Wand, deren Fläche bei a = aFace liegt und nach -a zeigt
   const ladderAt = (aFace, c, yBot, yTop, o) => {
     const b = B3(aFace - 0.65, aFace, c - 0.45, c + 0.45, yBot - 0.05, yTop);
@@ -58,7 +59,6 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
   function coopWall(aWall, aTop, cw, mat) {
     const lo = solid(0, aWall, -cw, cw, y0 - 0.6, y0, mat);
     k.addPath(lo, 'static', { arena: id });
-    signText('RÄUBERLEITER', 'Einer hält fest (Shift), der andere springt von ihm ab – oben festhalten zieht hoch');
     const y1 = y0 + COOP_WALL;
     const hi = solid(aWall, aTop, -cw, cw, y0 - 0.6, y1, mat, { coopWall: true });
     k.addPath(hi, 'coop', { how: 'coop', arena: id });
@@ -78,7 +78,7 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
       const floorMat = acid ? 'concrete' : 'concrete';
       const floor = solid(0, L, -H, H, y0 - 0.6, y0, floorMat, { arenaFloor: true });
       k.addPath(floor, 'static', { arena: id });
-      signText(acid ? 'SÄUREBECKEN · STAPLER' : 'STAPLERHOF', acid ? 'Gabel hoch über die Säure! Einer fährt (G), die anderen fahren mit' : 'Einer fährt (G am Sitz), die anderen auf die Gabel – oben Hebel ziehen');
+      signText(acid ? 'SÄUREBECKEN · STAPLER' : 'STAPLERHOF');
       if (acid) {
         // Säure auf dem Hallenboden: Stapler fährt hindurch, Füße verätzen
         const az = B3(6.5, 21.5, -H, H, y0, y0 + 0.2);
@@ -171,14 +171,14 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
           const z = shaft(y1 + h, y1 + h + 0.12);
           k.hazard('laser', z.min, z.max, { timer: { period: 4.2, phase: ph, on: 0.4 }, color: T.laser, arena: id, grid: true });
         }
-        signText('PAKETAUFZUG', 'Zwei Kurbeln (G) – zusammen kurbeln. Lichtgitter abwarten (Shift bremst)');
+        signText('PAKETAUFZUG');
       } else {
         // Böen quer durch den Schacht und ein Füllstandsensor
         const wz = shaft(y1 + 2, y1 + 8.5);
         k.wind({ min: wz.min, max: wz.max }, [f[0] * 7, 0, f[1] * 7], { period: 4.5, phase: 0.3 });
         const z = shaft(y1 + 5.2, y1 + 5.32);
         k.hazard('laser', z.min, z.max, { timer: { period: 4.2, phase: 0.2, on: 0.4 }, color: T.laser, arena: id, grid: true });
-        signText('SILOAUFZUG', 'Zwei Kurbeln (G). Böen im Schacht – Mitfahrer halten sich fest (Shift)');
+        signText('SILOAUFZUG');
       }
       exitPath(exit, lf);
       reserve(2.4, cA + half + 4.05, -H, H, y1, y1 + rise + 3);
@@ -203,7 +203,7 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
       const aArc = s0 + 13.6;
       const z = B3(aArc - 0.2, aArc + 0.2, -2.2, 2.2, y1 + rise - 0.1, y1 + rise + 2.6);
       k.hazard('laser', z.min, z.max, { timer: { period: 3.6, phase: 0.1, on: 0.4 }, arc: true, color: T.laser, arena: id });
-      signText('DRAISINE', 'Zwei Pumpgriffe (G): abwechselnd pumpen (Leertaste) – Lichtbogen abwarten');
+      signText('DRAISINE');
       exitPath(exit, tr);
       reserve(2.4, s0 + len + 5.5, -H, H, y1 - 1, y1 + rise + 3.5);
       break;
@@ -240,7 +240,7 @@ export function buildArena(k, kind, T, id, mirror, shift = 0) {
       // Höhenwind über dem Schwenkbereich
       const wz = B3(6, 21, -H, 0, y1 - 1, y1 + 5);
       k.wind({ min: wz.min, max: wz.max }, [dirR[0] * 6, 0, dirR[1] * 6], { period: 5.5, phase: 0.4 });
-      signText('TURMKRAN', 'Einer dreht, der andere fährt Katze und Hub (G) – Mitfahrer festhalten');
+      signText('TURMKRAN');
       exitPath(exit, tc);
       reserve(2.4, 25, -H, H, y1 - 1, y1 + 7);
       break;

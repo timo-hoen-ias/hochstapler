@@ -22,8 +22,8 @@ export const DEFAULTS = {
   dof: 'auto', // Tiefenunschärfe: auto | on | off
   fog: 'normal', // Distanznebel: light | normal | dense
   heightFog: true,
-  splitscreen: true,
-  splat: 'blut', // Absturz-Effekt: blut | farbe | aus // lokaler Koop: geteilter Bildschirm statt gemeinsamer Kamera
+  splitscreen: true, // lokaler Koop: geteilter Bildschirm statt gemeinsamer Kamera
+  splat: 'blut', // Absturz-Effekt: blut | farbe | aus
 };
 
 // Effekt an/aus, wobei 'auto' der Grafikqualität folgt

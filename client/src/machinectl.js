@@ -101,7 +101,7 @@ export class MachineControl {
       releaseGrips(lp.body);
       lp.body.gripCool = 0;
       const S = m.stations[st];
-      this.g.toast(`${this.g.locals.length > 1 ? lp.name + ': ' : ''}${S.label} – ${S.hint} · G verlassen`, { keys: lp.input?.device === 'pad' || lp.pad !== undefined ? 'pad' : 'kbm' });
+      this.g.toast(`${this.g.locals.length > 1 ? lp.name + ': ' : ''}${S.label}`);
       audio.play('ui');
     }
   }
