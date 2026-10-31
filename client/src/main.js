@@ -1,5 +1,5 @@
 import { buildLevel, sectionAtHeight } from './level.js';
-import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
+import { Colliders, createBody, stepBody, applyRope, releaseGrips, PHYS } from './physics.js';
 import { FixedStep } from './loop.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
@@ -81,6 +81,7 @@ class Game {
     this.world = new Colliders(this.level);
     this.view = new Renderer($('app'), this.level);
     this.body = createBody(this.level.spawn);
+    this.view.localBody = this.body;
     this.me = { id: 'local', name, slot: 0, color: '#ff7a1a' };
     this.remotes = new Map();
     this.camYaw = 0;
@@ -458,6 +459,7 @@ class Game {
     this.body.pos = pos;
     this.body.vel = [0, 0, 0];
     this.body.grounded = false;
+    releaseGrips(this.body);
     if (toStart) this.best = 0;
   }
 

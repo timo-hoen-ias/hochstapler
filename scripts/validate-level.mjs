@@ -34,12 +34,23 @@ const sweep = (m) => {
   return { min, max };
 };
 
+// Grenzen je nach Art des Übergangs. Haken und Leitern prüft die Simulation.
+function limits(A, B, rise) {
+  if (B.how === 'ladder') return { rise: 6, gap: 0.05 };
+  if (B.how === 'ledge') return { rise: 2.15, gap: 1.7 };
+  if (A.special === 'slide') return { rise: 0.5, gap: 4.5 };
+  if (B.how === 'long') return { rise: 0.4, gap: 3.6 + Math.max(0, -rise) * 0.6 };
+  return { rise: maxRise(A.special), gap: MAX_GAP };
+}
 for (let i = 1; i < level.path.length; i++) {
-  const from = endBox(level.path[i - 1]);
-  const to = level.path[i].box;
-  const rise = to.max[1] - from.max[1];
+  const A = level.path[i - 1], B = level.path[i];
+  if (A.kind === 'hook' || B.kind === 'hook') continue;
+  const from = endBox(A);
+  const to = B.box;
+  const rise = (to.ramp ? to.ramp.near : to.max[1]) - from.max[1];
   const gap = gapXZ(from, to);
-  if (rise > maxRise(level.path[i - 1].special) || gap > MAX_GAP) report(`Schritt ${i}: Anstieg ${rise.toFixed(2)} m, Lücke ${gap.toFixed(2)} m`);
+  const lim = limits(A, B, rise);
+  if (rise > lim.rise || gap > lim.gap) report(`Schritt ${i}: Anstieg ${rise.toFixed(2)} m, Lücke ${gap.toFixed(2)} m (${B.how || 'Sprung'})`);
 }
 
 const solids = level.statics.filter((s) => !s.big);
@@ -67,7 +78,9 @@ for (let i = 0; i < solids.length; i++) {
   const s = solids[i];
   for (const j of near(s)) if (j > i && inter(s, solids[j], 0.01)) report(`Überschneidung: #${i} (${s.mat}) und #${j} (${solids[j].mat})`);
   const head = { min: [s.min[0] - 0.3, s.max[1] + 0.01, s.min[2] - 0.3], max: [s.max[0] + 0.3, s.max[1] + 2.0, s.max[2] + 0.3] };
-  for (const j of near(head)) if (j !== i && inter(head, solids[j])) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
+  const bare = { min: [s.min[0], s.max[1] + 0.01, s.min[2]], max: [s.max[0], s.max[1] + 2.0, s.max[2]] };
+  // Leitertürme stehen direkt an der Plattform davor: nur echte Überdeckung zählt
+  for (const j of near(head)) if (j !== i && inter(head, solids[j]) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
 }
 
 for (const [k, m] of level.movers.entries()) {
@@ -76,6 +89,7 @@ for (const [k, m] of level.movers.entries()) {
   for (const j of near(room)) if (inter(room, solids[j], 0.02)) report(`Mover ${k} (${m.kind}) kollidiert mit #${j} (${solids[j].mat})`);
 }
 for (const [k, z] of level.zones.entries()) {
+  if (z.push) continue; // Wind darf über Plattformen wehen
   for (const j of near(z)) if (inter(z, solids[j], 0.02)) report(`Lüfter ${k} ist verbaut von #${j} (${solids[j].mat})`);
 }
 

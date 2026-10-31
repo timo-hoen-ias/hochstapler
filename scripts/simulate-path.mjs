@@ -3,6 +3,7 @@
 // Bewegliche Plattformen und Kippschalen werden im passenden Takt angesprungen.
 import { buildLevel, phaseOf, BLINK_WARN } from '../client/src/level.js';
 import { Colliders, createBody, stepBody, PHYS } from '../client/src/physics.js';
+import { simHookFrom, simToHook, simLadder } from './sim-grips.mjs';
 
 const level = buildLevel();
 const world = new Colliders(level);
@@ -28,6 +29,15 @@ for (let i = 1; i < level.path.length; i++) {
   if (only !== null && i !== only) continue;
   const A = level.path[i - 1], B = level.path[i];
   tested++;
+  // Haken und Leitern haben eigene Abläufe
+  if (A.kind === 'hook' || B.kind === 'hook' || B.how === 'ladder') {
+    const r = A.kind === 'hook' ? simHookFrom(level, world, A, B) : B.kind === 'hook' ? simToHook(level, world, A, B) : simLadder(level, world, A, B);
+    if (!r.ok) {
+      fails++;
+      console.log(`✗ ${i - 1}→${i} (${A.how || A.special || A.kind} → ${B.how || B.special || B.kind}) Abschnitt ${B.box.sec ?? B.hook?.sec}: ${r.why}`);
+    }
+    continue;
+  }
   let t = startTime(A, B);
   world.t = null;
   world.update(t);
@@ -55,6 +65,7 @@ for (let i = 1; i < level.path.length; i++) {
     world.update(t);
     const tb = bBox(), tc = center(tb);
     let ix = 0, iz = 0, jump = false;
+    if (body.hang) jump = true; // an der Kante: hochziehen
     if (!jumped) {
       ix = dir[0]; iz = dir[1];
       const f = aBox();
@@ -80,7 +91,7 @@ for (let i = 1; i < level.path.length; i++) {
     if (process.env.DEBUG) console.log(s, body.pos.map((v) => v.toFixed(2)).join(','), body.grounded, body.ground && body.ground.mat, steering);
     if (body.bounced === tb && steering) { ok = true; break; }
     if (B.special === 'fan' && body.inFan && world.zoneAt(body.pos) === B.zone) { ok = true; break; }
-    if (jumped && s > 10 && body.grounded && (steering || body.ground !== a)) { ok = body.ground === tb; break; }
+    if (jumped && s > 10 && body.grounded && (steering || body.ground !== a)) { ok = body.ground === tb; if (ok || !A.special || (A.special !== 'slide' && A.special !== 'ramp' && A.special !== 'round')) break; }
   }
   if (!ok) {
     fails++;
