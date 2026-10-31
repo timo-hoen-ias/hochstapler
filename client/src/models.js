@@ -237,12 +237,15 @@ export function buildHooks(scene, level, M) {
 }
 
 const _v = new THREE.Vector3(), _up = new THREE.Vector3(0, 1, 0);
-export function updateHooks(live, body) {
+export function updateHooks(live, locals = []) {
   for (const o of live) {
     const P = o.h.cur;
     o.trolley.position.set(P[0], P[1] + 0.2, P[2]);
     let gx = P[0], gy = P[1] - o.h.len, gz = P[2];
-    if (body && body.hook && body.hook.h === o.h) { gx = body.pos[0]; gy = body.pos[1] + 1.95; gz = body.pos[2]; }
+    for (const lp of locals) {
+      const body = lp.body;
+      if (body && body.hook && body.hook.h === o.h) { gx = body.pos[0]; gy = body.pos[1] + 1.95; gz = body.pos[2]; }
+    }
     _v.set(gx - P[0], gy - P[1], gz - P[2]);
     const len = _v.length();
     o.chain.position.set((P[0] + gx) / 2, (P[1] + gy) / 2, (P[2] + gz) / 2);

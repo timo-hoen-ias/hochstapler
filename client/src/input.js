@@ -7,8 +7,87 @@ const deadzone = (v) => (Math.abs(v) < DEAD ? 0 : Math.sign(v) * (Math.abs(v) - 
 
 export const EMOTES = ['Warte!', 'Los, springen!', 'Festhalten!'];
 
+// Controller, die schon einem Spieler gehören (Index der Gamepad-API).
+// Lokaler Koop: jeder Controller steuert genau einen Spieler.
+export const padClaims = new Set();
+
+export function listPads() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  return [...pads].filter((p) => p && p.connected);
+}
+
+// Hat jemand an diesem Controller gerade etwas gedrückt oder bewegt?
+export function padActive(gp) {
+  return gp.buttons.some((b) => b.pressed) || gp.axes.some((a) => Math.abs(a) > 0.5);
+}
+
+// Gemeinsame Tastenbelegung für alle Controller. prev: Tastenzustand vom letzten Frame.
+// Liefert Bewegung, Kamera-Deltas und Aktionen dieses Frames.
+export function readPad(gp, prev, dt, enabled) {
+  const b = (i) => !!gp.buttons[i]?.pressed;
+  const v = (i) => gp.buttons[i]?.value || 0;
+  const pressed = (i) => b(i) && !prev[i];
+  const out = { fx: 0, rx: 0, lookX: 0, lookY: 0, zoom: 0, jump: false, brace: false, emote: -1, pause: pressed(9), any: false };
+  const lx = deadzone(gp.axes[0] || 0), ly = deadzone(gp.axes[1] || 0);
+  const rxs = deadzone(gp.axes[2] || 0), rys = deadzone(gp.axes[3] || 0);
+  out.any = !!(lx || ly || rxs || rys || gp.buttons.some((x) => x.pressed));
+  if (enabled) {
+    out.rx = lx; out.fx = -ly;
+    const ps = settings.get().padSensitivity;
+    // quadratische Kurve: feine Kontrolle in der Mitte
+    out.lookX = -Math.sign(rxs) * rxs * rxs * 3.2 * ps * dt;
+    out.lookY = Math.sign(rys) * rys * rys * 2.2 * ps * dt * (settings.get().invertY ? -1 : 1);
+    out.jump = pressed(0);
+    out.brace = b(1) || b(5) || b(7) || v(6) > 0.3 || v(7) > 0.3;
+    if (pressed(2)) out.emote = 0;
+    if (pressed(3)) out.emote = 1;
+    if (pressed(4)) out.emote = 2;
+    if (b(12)) out.zoom -= 8 * dt;
+    if (b(13)) out.zoom += 8 * dt;
+  }
+  return out;
+}
+
+// Ein weiterer lokaler Spieler, der nur mit seinem eigenen Controller spielt.
+export class PadInput {
+  constructor(index, handlers = {}) {
+    this.index = index;
+    this.h = handlers; // { pause, emote }
+    this.enabled = true;
+    this.prev = [];
+    this.jumpQueued = false;
+    padClaims.add(index);
+  }
+
+  pad() {
+    const gp = navigator.getGamepads ? navigator.getGamepads()[this.index] : null;
+    return gp && gp.connected ? gp : null;
+  }
+
+  setEnabled(on) { this.enabled = on; if (!on) this.jumpQueued = false; }
+
+  poll(dt) {
+    const out = { forward: 0, right: 0, brace: false, jump: false, lookX: 0, lookY: 0, zoom: 0 };
+    const gp = this.pad();
+    if (!gp) return out;
+    const r = readPad(gp, this.prev, dt, this.enabled);
+    this.prev = gp.buttons.map((x) => x.pressed);
+    if (r.pause) this.h.pause?.();
+    if (r.emote >= 0) this.h.emote?.(r.emote);
+    const len = Math.hypot(r.fx, r.rx);
+    out.forward = len > 1 ? r.fx / len : r.fx;
+    out.right = len > 1 ? r.rx / len : r.rx;
+    out.brace = r.brace; out.jump = r.jump;
+    out.lookX = r.lookX; out.lookY = r.lookY; out.zoom = r.zoom;
+    return out;
+  }
+
+  dispose() { padClaims.delete(this.index); }
+}
+
 export class Input {
-  constructor(canvas, handlers = {}) {
+  // opts.pad: 'auto' (erster benutzter, freier Controller), eine feste Index-Nummer oder 'none'
+  constructor(canvas, handlers = {}, opts = {}) {
     this.canvas = canvas;
     this.h = handlers; // { pause, emote }
     this.enabled = true;
@@ -17,7 +96,9 @@ export class Input {
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     this.jumpQueued = false;
     this.device = document.body.dataset.device || 'kbm'; // kbm | pad | touch
-    this.pad = { prev: [], index: -1 };
+    this.padMode = opts.pad ?? 'auto';
+    this.pad = { prev: [], index: typeof this.padMode === 'number' ? this.padMode : -1 };
+    if (this.pad.index >= 0) padClaims.add(this.pad.index);
     this.touch = { move: null, look: null, jump: false, brace: false, braceToggle: false };
     this.bindKeyboardMouse();
     this.bindGamepad();
@@ -54,7 +135,7 @@ export class Input {
       if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.setDevice('kbm');
       const s = 0.0025 * settings.get().sensitivity;
       this.lookX -= e.movementX * s;
-      this.lookY += e.movementY * s * (settings.get().invertY ? -1 : 1);
+      this.lookY += e.movementY * s;
     });
     addEventListener('wheel', (e) => { if (this.enabled) this.zoom += Math.sign(e.deltaY) * 0.8; }, { passive: true });
   }
@@ -62,19 +143,31 @@ export class Input {
   // ───────── Gamepad ─────────
   bindGamepad() {
     addEventListener('gamepadconnected', (e) => {
-      this.pad.index = e.gamepad.index;
       this.h.toast?.(`Controller verbunden: ${shortName(e.gamepad.id)}`);
     });
     addEventListener('gamepaddisconnected', (e) => {
-      if (this.pad.index === e.gamepad.index) this.pad.index = -1;
+      // Ein fest zugeteilter Controller bekommt beim Wiederverbinden meist denselben Index
+      if (this.pad.index === e.gamepad.index && this.padMode === 'auto') { padClaims.delete(this.pad.index); this.pad.index = -1; }
       this.h.toast?.('Controller getrennt');
     });
   }
 
   gamepad() {
+    if (this.padMode === 'none') return null;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    if (this.pad.index >= 0 && pads[this.pad.index]) return pads[this.pad.index];
-    for (const p of pads) if (p && p.connected) { this.pad.index = p.index; return p; }
+    if (this.pad.index >= 0) {
+      const gp = pads[this.pad.index];
+      return gp && gp.connected ? gp : null;
+    }
+    // Automatisch: der erste freie Controller, an dem jemand etwas drückt, gehört Spieler 1
+    for (const p of pads) {
+      if (p && p.connected && !padClaims.has(p.index) && padActive(p)) {
+        this.pad.index = p.index;
+        padClaims.add(p.index);
+        this.pad.prev = p.buttons.map(() => false);
+        return p;
+      }
+    }
     return null;
   }
 
@@ -130,7 +223,7 @@ export class Input {
       if (!t.look || t.look.id !== e.pointerId || !this.enabled) return;
       const s = 0.006 * settings.get().sensitivity;
       this.lookX -= (e.clientX - t.look.x) * s;
-      this.lookY += (e.clientY - t.look.y) * s * (settings.get().invertY ? -1 : 1);
+      this.lookY += (e.clientY - t.look.y) * s;
       t.look.x = e.clientX; t.look.y = e.clientY;
     });
     const endLook = (e) => { if (t.look && t.look.id === e.pointerId) t.look = null; };
@@ -199,27 +292,15 @@ export class Input {
     // Gamepad
     const gp = this.gamepad();
     if (gp) {
-      const b = (i) => !!gp.buttons[i]?.pressed;
-      const v = (i) => gp.buttons[i]?.value || 0;
-      const pressed = (i) => b(i) && !this.pad.prev[i];
-      const lx = deadzone(gp.axes[0] || 0), ly = deadzone(gp.axes[1] || 0);
-      const rxs = deadzone(gp.axes[2] || 0), rys = deadzone(gp.axes[3] || 0);
-      const any = lx || ly || rxs || rys || gp.buttons.some((x) => x.pressed);
-      if (any) this.setDevice('pad');
-      if (pressed(9)) this.h.pause?.();
+      const r = readPad(gp, this.pad.prev, dt, this.enabled);
+      if (r.any) this.setDevice('pad');
+      if (r.pause) this.h.pause?.();
       if (this.enabled) {
-        rx += lx; fx -= ly;
-        const ps = settings.get().padSensitivity;
-        // quadratische Kurve: feine Kontrolle in der Mitte
-        this.lookX -= Math.sign(rxs) * rxs * rxs * 3.2 * ps * dt;
-        this.lookY += Math.sign(rys) * rys * rys * 2.2 * ps * dt * (settings.get().invertY ? -1 : 1);
-        if (pressed(0)) this.jumpQueued = true;
-        if (b(1) || b(5) || b(7) || v(6) > 0.3 || v(7) > 0.3) brace = true;
-        if (pressed(2)) this.h.emote?.(0);
-        if (pressed(3)) this.h.emote?.(1);
-        if (pressed(4)) this.h.emote?.(2);
-        if (b(12)) this.zoom -= 8 * dt;
-        if (b(13)) this.zoom += 8 * dt;
+        rx += r.rx; fx += r.fx;
+        this.lookX += r.lookX; this.lookY += r.lookY; this.zoom += r.zoom;
+        if (r.jump) this.jumpQueued = true;
+        if (r.brace) brace = true;
+        if (r.emote >= 0) this.h.emote?.(r.emote);
       }
       this.pad.prev = gp.buttons.map((x) => x.pressed);
     }
