@@ -50,6 +50,8 @@ export function modelMaterials(tex, mats) {
     tankWhite: std({ color: 0xe9ecee, metalness: 0.35, roughness: 0.35 }),
     tankYellow: std({ color: 0xe2c23a, metalness: 0.3, roughness: 0.45 }),
     tankGreen: std({ color: 0x5f8f4e, metalness: 0.3, roughness: 0.5 }),
+    tankRed: std({ color: 0xb8352a, metalness: 0.3, roughness: 0.45 }), // Löschwasser (Akt 8)
+    tankDeck: std({ color: 0x4a5058, metalness: 0.6, roughness: 0.5 }),
     pipeRed: std({ color: 0xb33a2c, metalness: 0.5, roughness: 0.45 }),
     rail: std({ color: 0x5b4f45, metalness: 0.7, roughness: 0.5 }),
     wagonRed: std({ color: 0x8c3b2a, metalness: 0.35, roughness: 0.6 }),
@@ -304,6 +306,7 @@ export function forkliftGroup(M, side, kind) {
 // ───────── Kulisse: Regale, Palettenstapel, Containerreihen (instanziert) ─────────
 export function buildScenery(scene, level, M) {
   const batch = new Batch();
+  const tanks = level.props.filter((p) => p.type === 'tank');
   for (const p of level.props) {
     if (p.type === 'rack') {
       // Regalwand: Stützen alle 2,7 m, Traversen alle 1,8 m, Paletten mit Ware
@@ -407,8 +410,26 @@ export function buildScenery(scene, level, M) {
     } else if (p.type === 'tank') {
       // Lagertank auf Stahlgestell mit Warnband
       const [x, y, z] = p.pos, r = p.r, h = p.h;
-      const mat = [M.tankWhite, M.tankYellow, M.tankGreen][p.color || 0];
-      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) batch.add(M.flange, bx([x + dx * r * 0.6 - 0.12, y - 2.5, z + dz * r * 0.6 - 0.12], [x + dx * r * 0.6 + 0.12, y, z + dz * r * 0.6 + 0.12]));
+      const mat = [M.tankWhite, M.tankYellow, M.tankGreen, M.tankRed][p.color || 0];
+      // Gestell bis zum nächsten Tank darunter oder bis zum Boden des Akts – sonst
+      // stünden die Tanks auf kurzen Beinen in der Luft. Oben ein Gitterrost als Auflage.
+      let foot = p.y0 - 1;
+      for (const q of tanks) {
+        if (q === p || Math.hypot(q.pos[0] - x, q.pos[2] - z) > r + q.r) continue;
+        const qt = q.pos[1] + q.h + 1.3;
+        if (qt <= y - 0.4 && qt > foot) foot = qt;
+      }
+      const s = r * 0.72;
+      batch.add(M.tankDeck, bx([x - s - 0.3, y - 0.3, z - s - 0.3], [x + s + 0.3, y, z + s + 0.3]));
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) batch.add(M.flange, bx([x + dx * s - 0.14, foot, z + dz * s - 0.14], [x + dx * s + 0.14, y - 0.3, z + dz * s + 0.14]));
+      // Querverbände alle 4 m (Ringe aus Riegeln), damit das Gestell als Gerüst liest
+      for (let yy = y - 4.3; yy > foot + 0.5; yy -= 4) {
+        batch.add(M.flange, bx([x - s, yy - 0.08, z - s - 0.06], [x + s, yy + 0.08, z - s + 0.06]));
+        batch.add(M.flange, bx([x - s, yy - 0.08, z + s - 0.06], [x + s, yy + 0.08, z + s + 0.06]));
+        batch.add(M.flange, bx([x - s - 0.06, yy - 0.08, z - s], [x - s + 0.06, yy + 0.08, z + s]));
+        batch.add(M.flange, bx([x + s - 0.06, yy - 0.08, z - s], [x + s + 0.06, yy + 0.08, z + s]));
+      }
+      if (foot <= p.y0 - 0.5) batch.add(M.tankDeck, bx([x - s - 0.6, foot - 0.3, z - s - 0.6], [x + s + 0.6, foot, z + s + 0.6]));
       batch.add(mat, cyl(1, [x, y + h / 2, z], r, h, 28));
       batch.add(mat, cyl(1, [x, y + h + 0.5, z], 0.3, 1.0, 28, r));
       batch.add(M.hazardBand || M.chuteRail, cyl(1, [x, y + h * 0.35, z], r + 0.04, 0.5, 28));

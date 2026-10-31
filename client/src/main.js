@@ -836,6 +836,7 @@ class Game {
       this.view.updateAvatar(r.id, {
         pos: r.rpos, vel: r.vel, yaw: r.yaw, grounded: r.grounded, braced: r.braced, ...an, hidden: r.hidden > 0,
         grip: an.mode === 3 ? this.hookGrip(r.rpos) : null, pull: pulls.get(r.id),
+        swim: !!(r.a & 32), dive: !!(r.a & 64), carry: !!(r.a & 16),
       }, dt, false);
     }
     // Namensschilder über lokalen Spielern nur, wenn mehrere am Bildschirm sind
@@ -846,6 +847,7 @@ class Game {
       this.view.updateAvatar(lp.id, {
         pos: b.pos, vel: b.vel, yaw: visYaw(b), grounded: b.grounded, braced: b.braced, ...an, hidden: lp.dead > 0,
         grip: b.hook ? b.hook.h.cur : null, pull: pulls.get(lp.id),
+        swim: !!b.swim, dive: !!(b.swim && b.diving), carry: b.ext > 0,
       }, dt, single);
     }
 

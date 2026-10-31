@@ -436,6 +436,89 @@ export class Renderer {
     return mesh;
   }
 
+  // Höchste Fläche unter (x, z) zwischen y - range und y, oder null
+  floorBelow(x, z, y, range = 7) {
+    let best = null;
+    for (const o of this.level.statics) {
+      if (o.big || x < o.min[0] || x > o.max[0] || z < o.min[2] || z > o.max[2]) continue;
+      if (o.max[1] <= y + 0.05 && o.max[1] > y - range && (best === null || o.max[1] > best)) best = o.max[1];
+    }
+    return best;
+  }
+
+  // Liegt eine senkrechte Stange (x, z, y0..y1) im Lauf- oder Kopfraum einer Plattform?
+  inWalkway(x, z, y0, y1) {
+    for (const p of this.level.path) {
+      const o = p.box;
+      if (!o || x < o.min[0] - 0.35 || x > o.max[0] + 0.35 || z < o.min[2] - 0.35 || z > o.max[2] + 0.35) continue;
+      if (y0 < o.max[1] + 2.1 && y1 > o.max[1] + 0.02) return true;
+    }
+    return false;
+  }
+
+  // Rammböcke und Pressen bekommen ein Gestell, damit Zylinder nicht in der Luft hängen:
+  // Pressen ein Portal (zwei Stützen + Querträger), Rammböcke eine Stütze unter dem
+  // Zylinder. Stützen nur, wo sie auf einer Fläche stehen und keinen Laufweg kreuzen.
+  pusherFrame(m, b, cmin, cmax, u) {
+    const geos = (this.frameGeos ||= []);
+    const put = (min, max) => geos.push(boxGeo(min, max, 1));
+    const cx = (cmin[0] + cmax[0]) / 2, cz = (cmin[2] + cmax[2]) / 2;
+    const t = 0.11;
+    if (u[1] > 0.5) {
+      const [rx, rz] = m.side || [1, 0];
+      const half = Math.abs(rx) * (b.max[0] - b.min[0]) / 2 + Math.abs(rz) * (b.max[2] - b.min[2]) / 2;
+      const top = cmax[1] + 0.3;
+      for (const extra of [0.35, 0.9, 1.5]) {
+        const o = half + extra;
+        const legs = [1, -1].map((sg) => [cx + rx * o * sg, cz + rz * o * sg]);
+        const floors = legs.map(([x, z]) => this.floorBelow(x, z, b.min[1] + 0.1, 9));
+        if (floors.some((f) => f === null)) continue;
+        if (legs.some(([x, z], i) => this.inWalkway(x, z, floors[i], top))) continue;
+        legs.forEach(([x, z], i) => put([x - t, floors[i], z - t], [x + t, top, z + t]));
+        put([Math.min(legs[0][0], legs[1][0]) - t, top - 0.05, Math.min(legs[0][1], legs[1][1]) - t],
+          [Math.max(legs[0][0], legs[1][0]) + t, top + 0.25, Math.max(legs[0][1], legs[1][1]) + t]);
+        return;
+      }
+      // Kein Boden neben dem Steg: C-Bügel um den Steg herum (unten Joch, seitlich Stützen)
+      const o = this.boxBelow(cx, cz, b.min[1] + m.delta[1] - 0.05);
+      if (!o) return;
+      const ho = Math.abs(rx) * (o.max[0] - o.min[0]) / 2 + Math.abs(rz) * (o.max[2] - o.min[2]) / 2 + 0.42;
+      const ocx = (o.min[0] + o.max[0]) / 2, ocz = (o.min[2] + o.max[2]) / 2;
+      // Bügel sitzt in der Ebene der Presse, quer zum Steg
+      const px = rx ? ocx : cx, pz = rz ? ocz : cz;
+      const legs = [1, -1].map((sg) => [px + rx * ho * sg, pz + rz * ho * sg]);
+      const y0 = o.min[1] - 0.25;
+      if (legs.some(([x, z]) => this.inWalkway(x, z, y0, top))) return;
+      legs.forEach(([x, z]) => put([x - t, y0, z - t], [x + t, top, z + t]));
+      const lo = [Math.min(legs[0][0], legs[1][0]) - t, 0, Math.min(legs[0][1], legs[1][1]) - t];
+      const hi = [Math.max(legs[0][0], legs[1][0]) + t, 0, Math.max(legs[0][1], legs[1][1]) + t];
+      put([lo[0], top - 0.05, lo[2]], [hi[0], top + 0.25, hi[2]]);
+      put([lo[0], y0, lo[2]], [hi[0], y0 + 0.22, hi[2]]);
+    } else {
+      const f = this.floorBelow(cx, cz, cmin[1], 7);
+      if (f !== null && !this.inWalkway(cx, cz, f, cmin[1])) { put([cx - t, f, cz - t], [cx + t, cmin[1], cz + t]); return; }
+      // Sonst: Kragarm unter dem Rammbock vom Steg bis unter den Zylinder, darauf ein Pfosten
+      const d = m.delta;
+      const ex = (b.min[0] + b.max[0]) / 2 + d[0] * 0.5, ez = (b.min[2] + b.max[2]) / 2 + d[2] * 0.5; // Steg liegt mitten im Stoßweg
+      const o = this.boxBelow(ex, ez, b.min[1] + 0.3);
+      if (!o) return;
+      const y1 = o.max[1] - 0.12, y0 = y1 - 0.2;
+      const ax = [Math.min(cx, ex), Math.max(cx, ex)], az = [Math.min(cz, ez), Math.max(cz, ez)];
+      put([ax[0] - t, y0, az[0] - t], [ax[1] + t, y1, az[1] + t]);
+      if (cmin[1] > y1 + 0.02) put([cx - t, y1, cz - t], [cx + t, cmin[1], cz + t]);
+    }
+  }
+
+  // Statische Box direkt unter (x, z), deren Oberkante höchstens bei y liegt (nächste zuerst)
+  boxBelow(x, z, y) {
+    let best = null;
+    for (const o of this.level.statics) {
+      if (o.big || x < o.min[0] || x > o.max[0] || z < o.min[2] || z > o.max[2]) continue;
+      if (o.max[1] <= y + 0.05 && o.max[1] > y - 3 && (!best || o.max[1] > best.max[1])) best = o;
+    }
+    return best;
+  }
+
   buildMovers() {
     this.moverMeshes = [];
     for (const m of this.level.movers) {
@@ -520,6 +603,7 @@ export class Renderer {
         rod.castShadow = true;
         g.add(rod);
         this.addDecorBox(cylMin, cylMax, this.mm.machine);
+        this.pusherFrame(m, b, cylMin, cylMax, u);
       }
       if (m.kind === 'swing') {
         // Kranseil: Linie vom Ausleger zum Haken
@@ -543,6 +627,13 @@ export class Renderer {
       g.position.set(b.min[0], b.min[1], b.min[2]);
       this.scene.add(g);
       this.moverMeshes.push({ m, g });
+    }
+    // Gestelle aller Rammböcke/Pressen in einem Mesh (ein Draw-Call)
+    if (this.frameGeos?.length) {
+      const frame = new THREE.Mesh(mergeGeometries(this.frameGeos), this.mats.upright);
+      frame.castShadow = true; frame.receiveShadow = true;
+      this.scene.add(frame);
+      this.frameGeos = null;
     }
   }
 

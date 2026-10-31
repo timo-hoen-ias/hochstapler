@@ -127,7 +127,7 @@ function key(u, v) {
 }
 
 // Zustände, die überblendet werden
-const ST = ['idle', 'loco', 'air', 'hang', 'hook', 'ladder', 'brace', 'pullup', 'hurt'];
+const ST = ['idle', 'loco', 'air', 'hang', 'hook', 'ladder', 'brace', 'pullup', 'hurt', 'swim'];
 
 const POSE = {
   idle(o, c) {
@@ -278,6 +278,40 @@ const POSE = {
     o[K.sr] = key(u, PU.sr) * c.lead;
   },
 
+  // Schwimmen: im Stand Wassertreten, in Fahrt Brustschwimmen (Körper liegt flach),
+  // beim Tauchen Kopf voran nach unten
+  swim(o, c) {
+    const m = c.swimMove, dv = c.dive;
+    const ph = c.swimPh;
+    const s = Math.sin(ph), co = Math.cos(ph);
+    // Wassertreten: aufrecht, Arme paddeln flach, Beine radeln
+    const tread = 1 - m;
+    // Füße treiben 1,2 m unter der Oberfläche (EL.float): treten = Brust am Wasserspiegel,
+    // schwimmen = Rücken knapp unter der Oberfläche, tauchen = tiefer
+    o[K.hy] = -0.25 * tread + 0.2 * m * (1 - dv) - 0.3 * dv;
+    o[K.hp] = 1.2 * m + 0.45 * dv;
+    o[K.sp] = 0.1 * tread + 0.15 * m * (1 - dv) + 0.3 * dv;
+    o[K.np] = -0.1 * tread - 1.05 * m * (1 - dv) - 0.2 * dv;
+    o[K.hz] = -0.25 * m;
+    // Brustzug: Arme vorstrecken, nach außen ziehen, unter die Brust zurück
+    const reach = 0.5 + 0.5 * co;                     // 1 = ganz vorn
+    const sweep = Math.max(0, -s);                    // Zugphase
+    o[K.asx] = lerp(-0.9 + 0.25 * s, -2.9 + 1.4 * (1 - reach), m);
+    o[K.bsx] = lerp(-0.9 - 0.25 * s, -2.9 + 1.4 * (1 - reach), m);
+    o[K.aab] = lerp(0.9 + 0.2 * co, 0.15 + 0.9 * sweep, m);
+    o[K.bab] = lerp(0.9 - 0.2 * co, 0.15 + 0.9 * sweep, m);
+    o[K.ael] = lerp(0.9, 0.2 + 1.3 * (1 - reach), m);
+    o[K.bel] = lerp(0.9, 0.2 + 1.3 * (1 - reach), m);
+    // Beine: Radfahren beim Treten, Froschschlag in Fahrt (um eine halbe Phase versetzt)
+    const kick = 0.5 + 0.5 * Math.sin(ph + Math.PI * 0.6);
+    o[K.ahx] = lerp(-0.5 - 0.35 * s, -0.05 - 0.6 * kick, m);
+    o[K.bhx] = lerp(-0.5 + 0.35 * s, -0.05 - 0.6 * kick, m);
+    o[K.akn] = lerp(0.9 + 0.5 * s, 0.15 + 1.6 * kick, m);
+    o[K.bkn] = lerp(0.9 - 0.5 * s, 0.15 + 1.6 * kick, m);
+    o[K.aab2] = lerp(0.1, 0.1 + 0.45 * kick, m); o[K.bab2] = o[K.aab2];
+    o[K.aft] = 0.5; o[K.bft] = 0.5;
+  },
+
   // Stromschlag: Körper reißt nach hinten, Arme und Beine weg, Zucken
   hurt(o, c) {
     const u = clamp(c.hurtT / 0.8, 0, 1);
@@ -296,7 +330,7 @@ const POSE = {
 };
 
 // Überblendgeschwindigkeit je Zielzustand (1/s)
-const FADE = { idle: 10, loco: 10, air: 13, hang: 16, hook: 14, ladder: 12, brace: 12, pullup: 40, hurt: 35 };
+const FADE = { idle: 10, loco: 10, air: 13, hang: 16, hook: 14, ladder: 12, brace: 12, pullup: 40, hurt: 35, swim: 7 };
 
 // ───────── Figur ─────────
 export class Rig {
@@ -362,11 +396,12 @@ export class Rig {
     this.lastPos = null; this.vyM = 0; this.yawPrev = null; this.yawRate = 0;
     this.velPrev = [0, 0]; this.accF = 0; this.accS = 0;
     this.off = new THREE.Vector3(); this.stepOff = 0; this.stepT = 9; this.offStart = new THREE.Vector3(); this.offT = 9;
+    this.swimMove = 0; this.swimPh = 0; this.dive = 0; this.carry = 0;
     this.tilt = new THREE.Euler(); this.pullS = 0; this.pullF = 0; this.pullSide = 0; this.pullUp = 0;
     this.events = { jumped: false, landed: 0, pulled: false };
   }
 
-  // s: { pos, vel, yaw, grounded, braced, mode, hurt, grip?, pull? }
+  // s: { pos, vel, yaw, grounded, braced, mode, hurt, grip?, pull?, swim?, dive?, carry? }
   update(s, dt) {
     const ev = this.events; ev.jumped = false; ev.landed = 0; ev.pulled = false;
     dt = Math.min(dt, 0.1);
@@ -450,6 +485,7 @@ export class Rig {
     this.pullT += dt; this.hurtT += dt; this.hardT += dt; this.offT += dt;
     let target;
     if (this.hurtT < 0.8) target = 'hurt';
+    else if (s.swim) target = 'swim';
     else if (mode === MODE.HANG) target = 'hang';
     else if (mode === MODE.HOOK) target = 'hook';
     else if (mode === MODE.LADDER) target = 'ladder';
@@ -472,8 +508,12 @@ export class Rig {
 
     // ── Posen mischen ──
     // Luftpose behält beim Ausblenden die letzte Fallgeschwindigkeit (sonst springt sie bei vy = 0)
+    this.swimMove += (sstep(0.4, 1.6, sp) - this.swimMove) * damp(4, dt);
+    this.swimPh += dt * lerp(2.6, 3.4, this.swimMove); // Phase aufsummieren: Tempowechsel ohne Sprung
+    this.dive += ((s.swim && s.dive ? 1 : 0) - this.dive) * damp(5, dt);
+    this.carry += ((s.carry ? 1 : 0) - this.carry) * damp(9, dt);
     const ctx = { t: this.t, phase: this.phase, lphase: this.lphase, runW, vy: this.airVy, airT: this.airT, vf, vs,
-      lead: this.lead, pullT: this.pullT, hurtT: this.hurtT };
+      lead: this.lead, pullT: this.pullT, hurtT: this.hurtT, swimMove: this.swimMove, dive: this.dive, swimPh: this.swimPh };
     const P = this.pose, T = this.tmp;
     P.fill(0);
     for (const k of ST) {
@@ -549,6 +589,14 @@ export class Rig {
       P[K.np] -= 0.25 * up * reach;
     }
 
+    // Feuerlöscher tragen: rechte Hand hält den Schlauch nach vorn, linke die Flasche
+    const cw = this.carry * (this.w.idle + this.w.loco + this.w.air + this.w.brace) / sum;
+    if (cw > 0.01) {
+      P[K.asx] = lerp(P[K.asx], -1.15, cw); P[K.ael] = lerp(P[K.ael], 0.75, cw); P[K.aab] = lerp(P[K.aab], -0.12, cw);
+      P[K.bsx] = lerp(P[K.bsx], -0.35, cw); P[K.bel] = lerp(P[K.bel], 1.35, cw); P[K.bab] = lerp(P[K.bab], 0.05, cw);
+      P[K.sy] = lerp(P[K.sy], 0.12, cw);
+    }
+
     this.apply(P, s, dt);
     this.lastPos = [pos[0], pos[1], pos[2]];
     return ev;
@@ -573,7 +621,7 @@ export class Rig {
 
     // Pendeln am Haken: ganze Figur um die Hände kippen, Richtung zum Aufhängepunkt
     let tx = 0, tz = 0;
-    const hw = this.w.hook / (this.w.hook + this.w.idle + this.w.loco + this.w.air + this.w.hang + this.w.ladder + this.w.brace + this.w.pullup + this.w.hurt);
+    const hw = this.w.hook / ST.reduce((a, k) => a + this.w[k], 0);
     if (s.grip && hw > 0.01) {
       const ry = r.rotation.y, c = Math.cos(ry), sn = Math.sin(ry);
       const gx = s.grip[0] - s.pos[0], gy = s.grip[1] - (s.pos[1] + GRIP_Y), gz = s.grip[2] - s.pos[2];

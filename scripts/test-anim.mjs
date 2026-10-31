@@ -18,6 +18,9 @@ push(60, (t) => ({ pos: [0, 2.15 + t * 3.4, 0.55], vel: [0, 0, 0], yaw: 0, groun
 push(80, (t) => ({ pos: [0, 3, Math.sin(t * 2) * 1.2], vel: [0, 0, Math.cos(t * 2) * 2.4], yaw: 0, grounded: false, braced: true, mode: MODE.HOOK, grip: [0, 7, 0] }));
 push(60, (t) => ({ pos: [0, 0, 0], vel: [0, 0, 0], yaw: 0, grounded: true, mode: MODE.GROUND, pull: [0, 0, t > 0.3 ? 1 : 0] }));
 push(60, (t) => ({ pos: [0, 0, 0], vel: [0, 0, 0], yaw: 0, grounded: t > 0.6, mode: t > 0.6 ? MODE.GROUND : MODE.AIR, hurt: t < 0.8 }));
+// Schwimmen: treten → schwimmen → tauchen → raus, dann mit Feuerlöscher laufen
+push(150, (t) => ({ pos: [0, 0, t * (t > 0.8 ? 2.4 : 0)], vel: [0, 0, t > 0.8 ? 2.4 : 0], yaw: 0, grounded: false, mode: MODE.AIR, swim: true, dive: t > 1.8 }));
+push(90, (t) => ({ pos: [0, 0, t * 3], vel: [0, 0, 3], yaw: 0, grounded: true, mode: MODE.GROUND, carry: t < 1 }));
 push(60, (t) => { const y = Math.max(0, 8 - G * t * t / 2); return { pos: [0, y, 0], vel: [0, y > 0 ? -G * t : 0, 0], yaw: 0, grounded: y <= 0, mode: y > 0 ? MODE.AIR : MODE.GROUND }; });
 
 let prev = null, worst = 0, at = -1, bad = 0;
