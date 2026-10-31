@@ -245,7 +245,7 @@ class AudioEngine {
       // Festhalten
       if (b.braced && !this._wasBraced) this.play('grip');
       this._wasBraced = b.braced;
-      this.sfx.setFall(b.grounded ? 0 : Math.hypot(b.vel[0], b.vel[1], b.vel[2]), b.vel[1]);
+      this.sfx.setFall(b.grounded ? 0 : Math.hypot(b.vel[0], b.vel[1], b.vel[2]), b.vel[1], b.inWind || 0);
     }
 
     // Seil: Knarzen bei Spannung, "Twang" wenn es plötzlich straff wird
