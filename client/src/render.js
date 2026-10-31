@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeTextures, textCanvas } from './textures.js';
+import { settings, QUALITY } from './settings.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -30,17 +36,17 @@ const UV_SCALE = {
 export class Renderer {
   constructor(container, level) {
     this.level = level;
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const s = settings.get();
+    this.renderer = new THREE.WebGLRenderer({ antialias: s.quality !== 'low', powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.95;
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
+    this.camera = new THREE.PerspectiveCamera(s.fov, window.innerWidth / window.innerHeight, 0.1, 600);
     this.tex = makeTextures();
     this.mats = this.makeMaterials();
 
@@ -52,71 +58,217 @@ export class Renderer {
     this.buildSigns();
     this.buildScenery();
     this.buildGoal();
+    this.buildHelpers();
 
     this.avatars = new Map();
     this.ropes = [];
+    this.shake = 0;
+    this.applyQuality();
+    settings.onChange((cur, patch) => {
+      if ('quality' in patch) this.applyQuality();
+      if ('fov' in patch) { this.camera.fov = cur.fov; this.camera.updateProjectionMatrix(); }
+    });
     window.addEventListener('resize', () => this.resize());
+    // Mobile-Browser melden die neue Größe nach Drehung teils verspätet
+    window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
   }
 
   resize() {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const w = window.innerWidth, h = window.innerHeight;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(w, h);
+    if (this.composer) {
+      this.composer.setPixelRatio(this.renderer.getPixelRatio());
+      this.composer.setSize(w, h);
+    }
+  }
+
+  // Grafikqualität (Auflösung, Schatten, Post-Processing) live umschalten
+  applyQuality() {
+    const q = QUALITY[settings.get().quality] || QUALITY.medium;
+    this.quality = q;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio));
+    this.renderer.shadowMap.enabled = q.shadows;
+    this.sun.castShadow = q.shadows;
+    if (this.sun.shadow.mapSize.x !== q.shadowMap) {
+      this.sun.shadow.mapSize.set(q.shadowMap, q.shadowMap);
+      this.sun.shadow.map?.dispose();
+      this.sun.shadow.map = null;
+    }
+    // Materialien müssen bei Schatten-Umschaltung neu kompiliert werden
+    this.scene.traverse((o) => { if (o.material) [].concat(o.material).forEach((m) => { m.needsUpdate = true; }); });
+    this.blob.visible = !q.shadows;
+
+    this.composer?.dispose();
+    this.composer = null;
+    if (q.post) {
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+      const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: q.antialias ? 4 : 0 });
+      const c = new EffectComposer(this.renderer, rt);
+      c.addPass(new RenderPass(this.scene, this.camera));
+      if (q.ao) {
+        const ao = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+        ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1 });
+        ao.blendIntensity = 0.85;
+        c.addPass(ao);
+      }
+      if (q.bloom) c.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.5, 0.88));
+      c.addPass(new OutputPass());
+      this.composer = c;
+    }
+    this.resize();
   }
 
   makeMaterials() {
     const t = this.tex;
     const std = (o) => new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05, ...o });
+    // Die Farbtexturen dienen gleichzeitig als Bump-Map: Fugen, Bretter und Gitter bekommen Tiefe
+    const bump = (map, scale) => ({ map, bumpMap: map, bumpScale: scale });
     const m = {
-      ground: std({ map: t.ground }),
-      concrete: std({ map: t.concrete }),
-      goods: std({ map: t.goods, roughness: 0.6 }),
-      crate: std({ map: t.crate }),
-      carton: std({ map: t.carton }),
-      beam: std({ map: t.beam, metalness: 0.3, roughness: 0.55 }),
-      upright: std({ map: t.upright, metalness: 0.3, roughness: 0.55 }),
-      grate: std({ map: t.grate, metalness: 0.5, roughness: 0.5 }),
+      ground: std({ ...bump(t.ground, 1.2), roughness: 0.92 }),
+      concrete: std({ ...bump(t.concrete, 1.5) }),
+      goods: std({ ...bump(t.goods, 2), roughness: 0.6 }),
+      crate: std({ ...bump(t.crate, 3) }),
+      carton: std({ ...bump(t.carton, 1.5), roughness: 0.9 }),
+      beam: std({ map: t.beam, metalness: 0.55, roughness: 0.42 }),
+      upright: std({ map: t.upright, metalness: 0.55, roughness: 0.42 }),
+      grate: std({ ...bump(t.grate, 2.5), metalness: 0.7, roughness: 0.45 }),
       hazard: std({ map: t.hazard }),
       lift: std({ map: t.hazard }),
       trailer: std({ map: t.trailer, roughness: 0.5 }),
       goal: std({ map: t.goal }),
     };
     CONTAINER_COLORS.forEach((c, i) => {
-      m['container' + i] = std({ map: t.container, color: c, metalness: 0.35, roughness: 0.55 });
+      m['container' + i] = std({ ...bump(t.container, 3), color: c, metalness: 0.45, roughness: 0.5 });
     });
     return m;
   }
 
   setupSky() {
+    // Abendhimmel als Equirect-Textur (Verlauf + Sonnenglühen). Dient auch als
+    // Umgebungsbeleuchtung (IBL), damit Metall und Container Reflexe bekommen.
+    const elevation = 16, azimuth = -122;
+    this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - elevation), THREE.MathUtils.degToRad(azimuth));
+    const W = 1024, H = 512;
     const c = document.createElement('canvas');
-    c.width = 4; c.height = 256;
+    c.width = W; c.height = H;
     const x = c.getContext('2d');
-    const g = x.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, '#2b2d5c');
-    g.addColorStop(0.35, '#7c6aa3');
-    g.addColorStop(0.5, '#f0a875');
-    g.addColorStop(0.56, '#f7c98e');
-    g.addColorStop(1, '#5d5653');
-    x.fillStyle = g; x.fillRect(0, 0, 4, 256);
+    const g = x.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#1f2050');
+    g.addColorStop(0.22, '#4a3f84');
+    g.addColorStop(0.38, '#8c6fa6');
+    g.addColorStop(0.47, '#e79a7a');
+    g.addColorStop(0.5, '#fbc98c');
+    g.addColorStop(0.53, '#c9967c');
+    g.addColorStop(1, '#3d3836');
+    x.fillStyle = g; x.fillRect(0, 0, W, H);
+    // Sonne + Glühen (mit horizontalem Umlauf)
+    const d = this.sunDir;
+    const su = (Math.atan2(d.z, d.x) / (2 * Math.PI) + 0.5) * W;
+    const sv = (1 - (Math.asin(d.y) / Math.PI + 0.5)) * H;
+    for (const ox of [-W, 0, W]) {
+      const glow = x.createRadialGradient(su + ox, sv, 0, su + ox, sv, 260);
+      glow.addColorStop(0, 'rgba(255,236,190,0.95)');
+      glow.addColorStop(0.05, 'rgba(255,214,150,0.8)');
+      glow.addColorStop(0.25, 'rgba(255,170,110,0.35)');
+      glow.addColorStop(1, 'rgba(255,140,100,0)');
+      x.fillStyle = glow;
+      x.fillRect(su + ox - 260, sv - 260, 520, 520);
+      x.fillStyle = '#fff6e0';
+      x.beginPath(); x.ellipse(su + ox, sv, 9, 9, 0, 0, Math.PI * 2); x.fill();
+    }
+    // ein paar zarte Wolkenbänder
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 40; i++) {
+      const cy = H * (0.3 + rnd() * 0.17), cx = rnd() * W, w = 60 + rnd() * 180;
+      x.fillStyle = `rgba(255,${180 + rnd() * 50},${150 + rnd() * 40},${0.06 + rnd() * 0.08})`;
+      x.beginPath(); x.ellipse(cx, cy, w, 3 + rnd() * 6, 0, 0, Math.PI * 2); x.fill();
+    }
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
     t.mapping = THREE.EquirectangularReflectionMapping;
     this.scene.background = t;
-    this.scene.fog = new THREE.Fog(0xe8b48a, 60, 260);
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromEquirectangular(t).texture;
+    this.scene.environmentIntensity = 0.6;
+    pmrem.dispose();
+
+    this.scene.fog = new THREE.Fog(0xe8b48a, 70, 300);
   }
 
   setupLights() {
-    this.scene.add(new THREE.HemisphereLight(0xbfd2ff, 0x5a4636, 1.3));
-    const sun = new THREE.DirectionalLight(0xffd2a0, 2.6);
-    sun.position.set(-40, 60, 25);
+    this.hemi = new THREE.HemisphereLight(0xbfd2ff, 0x5a4636, 0.75);
+    this.scene.add(this.hemi);
+    const sun = new THREE.DirectionalLight(0xffc890, 3.2);
+    // etwas steiler als die sichtbare Sonne, damit die Türme nicht komplett im Schatten liegen
+    this.sunOffset = new THREE.Vector3(this.sunDir.x, Math.max(this.sunDir.y, 0.55), this.sunDir.z).normalize().multiplyScalar(80);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const s = sun.shadow.camera;
-    s.left = -30; s.right = 30; s.top = 30; s.bottom = -30; s.near = 1; s.far = 160;
-    sun.shadow.bias = -0.0006;
-    sun.shadow.normalBias = 0.03;
+    s.left = -30; s.right = 30; s.top = 30; s.bottom = -30; s.near = 1; s.far = 200;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.035;
     this.scene.add(sun, sun.target);
     this.sun = sun;
+    // Warmes Gegenlicht für Konturen
+    const rim = new THREE.DirectionalLight(0x8fa8ff, 0.5);
+    rim.position.set(30, 20, -40);
+    this.scene.add(rim);
+  }
+
+  // Landepunkt-Markierung, Blob-Schatten (wenn Schatten aus) und Staub
+  buildHelpers() {
+    const ringTex = (() => {
+      const c = document.createElement('canvas');
+      c.width = c.height = 128;
+      const x = c.getContext('2d');
+      const g = x.createRadialGradient(64, 64, 10, 64, 64, 62);
+      g.addColorStop(0, 'rgba(0,0,0,0.55)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+      const t = new THREE.CanvasTexture(c);
+      return t;
+    })();
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), new THREE.MeshBasicMaterial({ map: ringTex, transparent: true, depthWrite: false, fog: false }));
+    blob.rotation.x = -Math.PI / 2;
+    blob.renderOrder = 2;
+    this.scene.add(blob);
+    this.blob = blob;
+
+    const marker = new THREE.Mesh(
+      new THREE.RingGeometry(0.22, 0.3, 28),
+      new THREE.MeshBasicMaterial({ color: 0xf2c014, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }),
+    );
+    marker.rotation.x = -Math.PI / 2;
+    marker.renderOrder = 3;
+    this.scene.add(marker);
+    this.marker = marker;
+
+    // Schwebender Hallenstaub im Gegenlicht
+    const N = 260;
+    const pos = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) {
+      pos[i * 3] = (Math.random() - 0.5) * 30;
+      pos[i * 3 + 1] = (Math.random() - 0.5) * 20;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 30;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    this.dust = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffe2b8, size: 0.06, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.dust.frustumCulled = false;
+    this.scene.add(this.dust);
+  }
+
+  // Höchste Oberfläche unter einem Punkt (für Landemarker)
+  groundBelow(colliders, p) {
+    let best = -Infinity;
+    for (const b of colliders.all) {
+      if (p[0] > b.min[0] && p[0] < b.max[0] && p[2] > b.min[2] && p[2] < b.max[2] && b.max[1] <= p[1] + 0.05 && b.max[1] > best) best = b.max[1];
+    }
+    return best;
   }
 
   buildStatics() {
@@ -256,7 +408,7 @@ export class Renderer {
     this.scene.add(asphalt);
     // Lichtmasten
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x555b62, metalness: 0.6, roughness: 0.4 });
-    const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff1c4, emissive: 0xffd27a, emissiveIntensity: 2 });
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff1c4, emissive: 0xffd27a, emissiveIntensity: 4 });
     for (let a = 0; a < 8; a++) {
       const r = 62, x = Math.cos(a / 8 * Math.PI * 2) * r, z = Math.sin(a / 8 * Math.PI * 2) * r;
       this.addDecorBox([x - 0.2, 0, z - 0.2], [x + 0.2, 18, z + 0.2], poleMat);
@@ -431,9 +583,47 @@ export class Renderer {
       belt.tex.offset.y += belt.v[2] * dt;
     }
     if (this.flag) this.flag.rotation.y = Math.sin(performance.now() / 600) * 0.3;
-    // Schattenkamera folgt dem Spieler
-    this.sun.position.set(focus[0] - 40, focus[1] + 60, focus[2] + 25);
-    this.sun.target.position.set(focus[0], focus[1], focus[2]);
-    this.renderer.render(this.scene, this.camera);
+    // Schattenkamera folgt dem Spieler, auf Texel gerastet gegen Flimmern
+    const texel = 60 / this.sun.shadow.mapSize.x;
+    const fx = Math.round(focus[0] / texel) * texel, fy = Math.round(focus[1] / texel) * texel, fz = Math.round(focus[2] / texel) * texel;
+    this.sun.position.set(fx + this.sunOffset.x, fy + this.sunOffset.y, fz + this.sunOffset.z);
+    this.sun.target.position.set(fx, fy, fz);
+
+    // Landemarker + Blob-Schatten unter dem lokalen Spieler
+    const gy = this.groundBelow(colliders, focus);
+    const h = focus[1] - gy;
+    const show = Number.isFinite(gy);
+    this.blob.visible = show && !this.quality.shadows;
+    this.blob.position.set(focus[0], gy + 0.02, focus[2]);
+    this.blob.scale.setScalar(Math.max(0.4, 1 - h * 0.08));
+    this.marker.visible = show && h > 1.2;
+    this.marker.position.set(focus[0], gy + 0.03, focus[2]);
+    this.marker.material.opacity = Math.min(0.9, 0.3 + h * 0.08);
+
+    // Staub wandert mit und treibt langsam
+    const dp = this.dust.geometry.attributes.position;
+    const tt = performance.now() / 1000;
+    for (let i = 0; i < dp.count; i++) {
+      let y = dp.getY(i) + dt * (0.15 + (i % 7) * 0.03);
+      let x = dp.getX(i) + Math.sin(tt * 0.3 + i) * dt * 0.1;
+      let z = dp.getZ(i);
+      // um den Spieler herum halten (Würfel 30×20×30)
+      const wrap = (v, c, r) => (v - c > r ? v - 2 * r : v - c < -r ? v + 2 * r : v);
+      x = wrap(x, focus[0], 15); y = wrap(y, focus[1] + 2, 10); z = wrap(z, focus[2], 15);
+      dp.setXYZ(i, x, y, z);
+    }
+    dp.needsUpdate = true;
+
+    // Kamera-Wackler (Landungen, Seilruck)
+    if (this.shake > 0.001 && settings.get().shake) {
+      const a = this.shake * 0.12;
+      this.camera.position.x += (Math.random() - 0.5) * a;
+      this.camera.position.y += (Math.random() - 0.5) * a;
+      this.camera.position.z += (Math.random() - 0.5) * a;
+    }
+    this.shake *= Math.exp(-dt * 9);
+
+    if (this.composer) this.composer.render(dt);
+    else this.renderer.render(this.scene, this.camera);
   }
 }
