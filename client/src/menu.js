@@ -2,6 +2,7 @@
 // Bedienbar mit Maus, Touch, Tastatur (Tab/Enter) und Controller (Steuerkreuz/Stick + A/B).
 import { settings, QUALITY } from './settings.js';
 import { audio } from './audio/index.js';
+import { OnScreenKeyboard } from './osk.js';
 
 const sfx = { click: () => audio.play('ui'), back: () => audio.play('uiBack'), move: () => audio.play('uiHover') };
 // Lautstärke-Regler schreiben direkt in die Audio-Engine (eigene Speicherung)
@@ -36,8 +37,14 @@ export class Menu {
     this.h = handlers; // { resume, copylink, respawn, quit }
     this.root = document.getElementById('menu');
     this.stack = ['main'];
-    this.pad = { prev: [], repeat: 0, axisHeld: 0 };
+    this.pad = { prev: [], repeat: 0, axisHeld: 0, skip: false };
+    this.returnFocus = [];
+    this.osk = new OnScreenKeyboard({ random: () => this.h.randomRoom?.() || '', sfx });
     this.buildOptions();
+    // Maus übernimmt wieder: Controller-Fokusrahmen ausblenden
+    addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && document.body.dataset.device === 'pad') document.body.dataset.device = 'kbm';
+    }, true);
     this.root.addEventListener('click', (e) => this.onClick(e));
     addEventListener('keydown', (e) => {
       if (!this.isOpen()) return;
@@ -52,15 +59,29 @@ export class Menu {
   current() { return this.stack[this.stack.length - 1]; }
 
   show(screen, push = true) {
-    if (push) this.stack.push(screen); else this.stack = [screen];
+    if (push) { this.returnFocus.push(document.activeElement); this.stack.push(screen); } else { this.stack = [screen]; this.returnFocus = []; }
     this.render();
   }
 
-  open(screen) { this.stack = [screen]; this.root.classList.remove('hidden'); this.render(); }
-  close() { this.root.classList.add('hidden'); }
+  open(screen) {
+    this.stack = [screen];
+    this.returnFocus = [];
+    this.pad.skip = true; // der Start-Druck, der das Pausenmenü geöffnet hat, zählt nicht gleich wieder
+    this.root.classList.remove('hidden');
+    this.render();
+  }
+  close() { this.osk.close(); this.root.classList.add('hidden'); }
 
   back() {
-    if (this.stack.length > 1) { this.stack.pop(); this.render(); sfx.back(); return; }
+    if (this.stack.length > 1) {
+      this.stack.pop();
+      this.render();
+      // Fokus zurück auf den Knopf, der den Bildschirm geöffnet hat
+      const el = this.returnFocus.pop();
+      if (el && this.focusables().includes(el)) el.focus({ preventScroll: true });
+      sfx.back();
+      return;
+    }
     if (this.current() === 'pause') this.h.resume?.();
   }
 
@@ -70,8 +91,11 @@ export class Menu {
     this.root.classList.toggle('in-game', this.stack[0] === 'pause');
     this.h.screen?.(cur);
     // Fokus für Tastatur/Controller auf das erste sinnvolle Element
-    const first = this.focusables()[0];
-    if (first && document.body.dataset.device !== 'touch' && cur !== 'main') first.focus({ preventScroll: true });
+    // Im Titelmenü nur mit Controller, sonst würde Maus-/Touch-Spielern ein Rahmen aufpoppen
+    const list = this.focusables();
+    const first = list.find((el) => el.matches('[data-autofocus], [data-opt]')) || list[0];
+    const dev = document.body.dataset.device;
+    if (first && dev !== 'touch' && (cur !== 'main' || dev === 'pad')) first.focus({ preventScroll: true });
   }
 
   onClick(e) {
@@ -85,6 +109,8 @@ export class Menu {
       const name = document.getElementById('name');
       const t = name.value.trim() ? document.getElementById('join') : name;
       t.focus();
+      // Mit Controller ohne Namen: gleich die Bildschirmtastatur öffnen
+      if (t === name && document.body.dataset.device === 'pad') this.openKeyboard(name);
       t.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       document.querySelector('.ticket')?.classList.remove('pulse');
       void document.querySelector('.ticket')?.offsetWidth;
@@ -181,6 +207,7 @@ export class Menu {
 
   // ───────── Controller-Navigation in allen sichtbaren Menüs ─────────
   activeOverlay() {
+    if (this.osk.isOpen()) return this.osk.el;
     if (this.isOpen()) return this.root.querySelector(`.screen[data-screen="${this.current()}"]`);
     const fin = document.getElementById('finish');
     if (fin && !fin.classList.contains('hidden')) return fin;
@@ -193,14 +220,54 @@ export class Menu {
     return [...scope.querySelectorAll('button, input')].filter((el) => el.offsetParent !== null && !el.disabled);
   }
 
-  moveFocus(dir) {
+  focusEl(el) {
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'nearest' });
+    sfx.move();
+  }
+
+  // Räumliche Navigation: nächstes Element in Drückrichtung (dx/dy = -1, 0, 1)
+  moveFocus(dx, dy) {
     const list = this.focusables();
     if (!list.length) return;
-    let i = list.indexOf(document.activeElement);
-    i = i < 0 ? 0 : (i + dir + list.length) % list.length;
-    list[i].focus();
-    list[i].scrollIntoView({ block: 'nearest' });
-    sfx.move();
+    const cur = document.activeElement;
+    if (!list.includes(cur)) { this.focusEl(list[0]); return; }
+    if (!dx && !dy) return;
+    const r = cur.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let best = null, bestScore = Infinity;
+    for (const el of list) {
+      if (el === cur) continue;
+      const q = el.getBoundingClientRect();
+      const qx = q.left + q.width / 2, qy = q.top + q.height / 2;
+      if ((dx && (qx - cx) * dx <= 2) || (dy && (qy - cy) * dy <= 2)) continue;
+      let main, gap, off;
+      if (dx) {
+        main = Math.max(0, dx > 0 ? q.left - r.right : r.left - q.right);
+        gap = Math.max(0, q.top - r.bottom, r.top - q.bottom);
+        off = Math.abs(qy - cy);
+        if (gap > 0 && gap > main) continue; // seitlich nur grob in derselben Zeile
+      } else {
+        main = Math.max(0, dy > 0 ? q.top - r.bottom : r.top - q.bottom);
+        gap = Math.max(0, q.left - r.right, r.left - q.right);
+        off = Math.abs(qx - cx);
+        if (gap > 0 && gap > main) continue; // hoch/runter bleibt grob in derselben Spalte
+      }
+      const score = main + gap * 3 + off * 0.15;
+      if (score < bestScore) { bestScore = score; best = el; }
+    }
+    if (!best && dy) {
+      // Am Rand: in derselben Spalte ans andere Ende springen, sonst der Reihe nach
+      const col = list.filter((el) => {
+        if (el === cur) return false;
+        const q = el.getBoundingClientRect();
+        return q.left < r.right && q.right > r.left;
+      });
+      const y = (el) => el.getBoundingClientRect().top;
+      if (col.length) best = col.reduce((a, el) => ((dy > 0 ? y(el) < y(a) : y(el) > y(a)) ? el : a));
+      else best = list[(list.indexOf(cur) + dy + list.length) % list.length];
+    }
+    if (best) this.focusEl(best);
   }
 
   adjust(dir) {
@@ -210,9 +277,22 @@ export class Menu {
       const o = OPTIONS.find((x) => x.key === key);
       this.cycle(o, dir);
       sfx.click();
+    } else if (el && 'lr' in el.dataset && this.activeOverlay()?.contains(el)) {
+      el.click(); // z. B. Spielmodus im Pausenmenü (◀ … ▶)
     } else {
-      this.moveFocus(dir);
+      this.moveFocus(dir, 0);
     }
+  }
+
+  openKeyboard(input) {
+    this.osk.open(input, {
+      onDone: (el) => {
+        // Name fertig: weiter zum Start-Knopf, Raumcode: zurück aufs Feld
+        const next = el.id === 'name' ? document.getElementById('join') : el;
+        next.focus({ preventScroll: true });
+        if (el.id === 'room') document.getElementById('invite')?.classList.add('hidden');
+      },
+    });
   }
 
   padLoop() {
@@ -232,34 +312,57 @@ export class Menu {
       buttons: Array.from({ length: n }, (_, i) => ({ pressed: pads.some((p) => p.buttons[i]?.pressed) })),
       axes: [0, 1].map((i) => pads.reduce((m, p) => (Math.abs(p.axes[i] || 0) > Math.abs(m) ? p.axes[i] : m), 0)),
     };
+    const down = gp.buttons.map((b) => b.pressed);
+    // Gerade geöffnet: gehaltene Knöpfe erst loslassen lassen
+    if (this.pad.skip) { this.pad.skip = false; this.pad.prev = down; return; }
     // Die Lobby für lokalen Koop wertet jeden Controller einzeln aus
-    if (this.isOpen() && this.current() === 'local') { this.pad.prev = gp.buttons.map((b) => b.pressed); return; }
-    const pressed = (i) => gp.buttons[i]?.pressed && !this.pad.prev[i];
+    if (this.isOpen() && this.current() === 'local' && !this.osk.isOpen()) { this.pad.prev = down; return; }
+    const prev = this.pad.prev;
+    const pressed = (i) => down[i] && !prev[i];
+    this.pad.prev = down;
     const scope = this.activeOverlay();
-    if (scope) {
-      const ay = gp.axes[1] || 0, ax = gp.axes[0] || 0;
-      let dir = 0, hdir = 0;
-      if (gp.buttons[12]?.pressed || ay < -0.6) dir = -1;
-      if (gp.buttons[13]?.pressed || ay > 0.6) dir = 1;
-      if (gp.buttons[14]?.pressed || ax < -0.6) hdir = -1;
-      if (gp.buttons[15]?.pressed || ax > 0.6) hdir = 1;
-      const now = performance.now();
-      const held = dir * 3 + hdir;
-      if (held && (held !== this.pad.axisHeld || now > this.pad.repeat)) {
-        this.pad.repeat = now + (held !== this.pad.axisHeld ? 380 : 120);
-        if (dir) this.moveFocus(dir); else this.adjust(hdir);
-      }
-      this.pad.axisHeld = held;
-      if (gp.buttons.some((b) => b.pressed)) { audio.unlock(); document.body.dataset.device = 'pad'; }
-      if (pressed(0)) {
-        const el = document.activeElement;
-        if (el && scope.contains(el) && el.tagName === 'BUTTON') el.click();
-        else if (!el || !scope.contains(el)) this.moveFocus(0);
-        else if (el.id === 'name' || el.id === 'room') document.getElementById('join').click();
-      }
-      if (pressed(1) && this.isOpen()) this.back();
-      if (pressed(9) && this.isOpen() && this.current() === 'main') document.getElementById('join').click();
+    if (!scope) { this.pad.axisHeld = 0; return; }
+    if (down.some(Boolean)) { audio.unlock(); document.body.dataset.device = 'pad'; }
+
+    const ay = gp.axes[1] || 0, ax = gp.axes[0] || 0;
+    let dy = 0, dx = 0;
+    if (down[12] || ay < -0.6) dy = -1;
+    if (down[13] || ay > 0.6) dy = 1;
+    if (down[14] || ax < -0.6) dx = -1;
+    if (down[15] || ax > 0.6) dx = 1;
+    if (dx && dy) { if (Math.abs(ax) > Math.abs(ay)) dy = 0; else dx = 0; }
+    const now = performance.now();
+    const held = dy * 3 + dx;
+    if (held && (held !== this.pad.axisHeld || now > this.pad.repeat)) {
+      this.pad.repeat = now + (held !== this.pad.axisHeld ? 380 : 110);
+      const el = document.activeElement;
+      if (!el || !scope.contains(el)) this.moveFocus(0, 0); // erster Druck: Fokus erst sichtbar machen
+      else if (dy) this.moveFocus(0, dy);
+      else this.adjust(dx);
     }
-    this.pad.prev = gp.buttons.map((b) => b.pressed);
+    this.pad.axisHeld = held;
+
+    const el = document.activeElement;
+    const inScope = el && scope.contains(el);
+    if (this.osk.isOpen()) {
+      if (pressed(0) && inScope && el.tagName === 'BUTTON') el.click();
+      else if (pressed(0)) this.moveFocus(0, 0);
+      if (pressed(1)) this.osk.press('close');
+      if (pressed(2)) this.osk.press('del');
+      if (pressed(3)) this.osk.press('space');
+      if (pressed(9)) this.osk.press('done');
+      return;
+    }
+    if (pressed(0)) {
+      if (!inScope) this.moveFocus(0, 0);
+      else if (el.tagName === 'BUTTON') el.click();
+      else if (el.id === 'name' || el.id === 'room') { sfx.click(); this.openKeyboard(el); }
+    }
+    if (pressed(1) && this.isOpen()) this.back();
+    if (pressed(9) && this.isOpen()) {
+      if (this.current() === 'main') document.getElementById('join').click();
+      // erst nach dem Spiel-Frame fortsetzen, sonst sieht das Spiel denselben Start-Druck und pausiert wieder
+      else if (this.stack[0] === 'pause') setTimeout(() => this.h.resume?.(), 0);
+    }
   }
 }

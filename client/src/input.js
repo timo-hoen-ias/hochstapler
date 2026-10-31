@@ -99,6 +99,10 @@ export class Input {
     this.padMode = opts.pad ?? 'auto';
     this.pad = { prev: [], index: typeof this.padMode === 'number' ? this.padMode : -1 };
     if (this.pad.index >= 0) padClaims.add(this.pad.index);
+    // Knöpfe, die beim Spielstart noch gehalten werden (Start/Ⓐ aus dem Menü), zählen nicht als neuer Druck
+    this.pad.startHeld = new Map([...(navigator.getGamepads ? navigator.getGamepads() : [])]
+      .filter((p) => p && p.connected).map((p) => [p.index, p.buttons.map((x) => x.pressed)]));
+    setTimeout(() => this.pad.startHeld.clear(), 1500);
     this.touch = { move: null, look: null, jump: false, brace: false, braceToggle: false };
     this.bindKeyboardMouse();
     this.bindGamepad();
@@ -164,7 +168,8 @@ export class Input {
       if (p && p.connected && !padClaims.has(p.index) && padActive(p)) {
         this.pad.index = p.index;
         padClaims.add(p.index);
-        this.pad.prev = p.buttons.map(() => false);
+        const held = this.pad.startHeld.get(p.index) || [];
+        this.pad.prev = p.buttons.map((x, i) => x.pressed && !!held[i]);
         return p;
       }
     }
@@ -291,6 +296,11 @@ export class Input {
 
     // Gamepad
     const gp = this.gamepad();
+    // Fest zugeteilter Controller (lokaler Koop): beim Start gehaltene Knöpfe nicht als neuen Druck werten
+    if (gp && !this.pad.prev.length) {
+      const held = this.pad.startHeld.get(gp.index) || [];
+      this.pad.prev = gp.buttons.map((x, i) => x.pressed && !!held[i]);
+    }
     if (gp) {
       const r = readPad(gp, this.pad.prev, dt, this.enabled);
       if (r.any) this.setDevice('pad');
