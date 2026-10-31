@@ -14,26 +14,111 @@
   <div id="app"></div>
 
   <div id="menu" class="overlay">
-    <section class="card screen" data-screen="main">
-      <div class="logo">HOCH<span>STAPLER</span></div>
-      <p class="tag">Bis zu vier Lageristen, ein Seil, ein Ziel: das Versanddach.</p>
-      <p id="invite" class="invite hidden"></p>
-      <label>Dein Name
-        <input id="name" maxlength="16" placeholder="z. B. Timo" autocomplete="off" enterkeyhint="go" />
-      </label>
-      <label>Raumcode
-        <div class="row">
-          <input id="room" maxlength="12" placeholder="ABCD" autocomplete="off" autocapitalize="characters" enterkeyhint="go" />
-          <button id="newroom" class="ghost" type="button">Neu</button>
-        </div>
-      </label>
-      <button id="join" class="primary" type="button">Schicht starten</button>
-      <div class="menu-row">
-        <button class="ghost" type="button" data-go="options">Optionen</button>
-        <button class="ghost" type="button" data-go="controls">Steuerung</button>
+    <div class="title-bg" aria-hidden="true">
+      <svg class="scene" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMax slice">
+        <defs>
+          <linearGradient id="tb-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1c1d4a" />
+            <stop offset="0.45" stop-color="#6b5a9a" />
+            <stop offset="0.72" stop-color="#e7987a" />
+            <stop offset="0.86" stop-color="#fbc98c" />
+          </linearGradient>
+          <radialGradient id="tb-sun" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#fff4d8" />
+            <stop offset="0.25" stop-color="#ffd896" stop-opacity="0.9" />
+            <stop offset="1" stop-color="#ff9d6b" stop-opacity="0" />
+          </radialGradient>
+          <linearGradient id="tb-rays" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffe2b0" stop-opacity="0.35" />
+            <stop offset="1" stop-color="#ffe2b0" stop-opacity="0" />
+          </linearGradient>
+          <pattern id="tb-hazard" width="40" height="40" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="40" height="40" fill="#f2c014" /><rect width="20" height="40" fill="#1b1b1f" />
+          </pattern>
+        </defs>
+        <rect width="1600" height="900" fill="url(#tb-sky)" />
+        <circle cx="1180" cy="610" r="260" fill="url(#tb-sun)" />
+        <g class="rays" fill="url(#tb-rays)">
+          <polygon points="1180,610 860,900 980,900" />
+          <polygon points="1180,610 1080,900 1160,900" />
+          <polygon points="1180,610 1300,900 1420,900" />
+        </g>
+        <!-- ferne Hallen -->
+        <g fill="#7d6a8f" opacity="0.55">
+          <rect x="0" y="690" width="320" height="210" /><rect x="300" y="720" width="260" height="180" />
+          <rect x="1290" y="700" width="310" height="200" /><rect x="980" y="740" width="280" height="160" />
+        </g>
+        <g fill="#5d4f72" opacity="0.8">
+          <rect x="60" y="760" width="420" height="140" /><rect x="1100" y="770" width="500" height="130" />
+          <rect x="520" y="790" width="300" height="110" />
+        </g>
+        <!-- Hochregal-Turm -->
+        <g class="tower" fill="#2a2440">
+          <rect x="760" y="80" width="14" height="820" /><rect x="900" y="80" width="14" height="820" /><rect x="1040" y="160" width="14" height="740" />
+          <rect x="760" y="820" width="294" height="10" /><rect x="760" y="700" width="294" height="10" /><rect x="760" y="580" width="294" height="10" />
+          <rect x="760" y="460" width="294" height="10" /><rect x="760" y="340" width="294" height="10" /><rect x="760" y="220" width="294" height="10" />
+          <rect x="760" y="100" width="154" height="10" />
+          <g fill="#3a3152">
+            <rect x="780" y="760" width="50" height="60" /><rect x="836" y="772" width="44" height="48" /><rect x="930" y="752" width="90" height="68" />
+            <rect x="790" y="640" width="96" height="60" /><rect x="944" y="652" width="60" height="48" />
+            <rect x="784" y="520" width="44" height="60" /><rect x="920" y="530" width="110" height="50" />
+            <rect x="800" y="404" width="80" height="56" /><rect x="960" y="410" width="54" height="50" />
+            <rect x="930" y="288" width="96" height="52" /><rect x="786" y="296" width="44" height="44" />
+            <rect x="790" y="170" width="70" height="50" />
+          </g>
+        </g>
+        <!-- Kran mit schwingender Kiste -->
+        <g fill="#2a2440">
+          <rect x="1180" y="60" width="18" height="840" />
+          <rect x="1010" y="60" width="520" height="16" />
+        </g>
+        <g class="swing">
+          <line x1="1420" y1="76" x2="1420" y2="330" stroke="#2a2440" stroke-width="4" />
+          <rect x="1380" y="330" width="80" height="62" fill="#3a3152" />
+          <rect x="1380" y="330" width="80" height="10" fill="url(#tb-hazard)" />
+        </g>
+        <!-- Seilschaft am Regal -->
+        <path class="rope" d="M818 700 Q 860 650 878 582 Q 900 520 934 462 Q 960 420 990 342" fill="none" stroke="#e8c27a" stroke-width="4" />
+        <g fill="#1d1830">
+          <g transform="translate(806 662)"><circle cx="12" cy="6" r="7" /><rect x="5" y="13" width="14" height="22" rx="3" /><rect x="5" y="34" width="5" height="16" /><rect x="14" y="34" width="5" height="16" /></g>
+          <g transform="translate(866 532)"><circle cx="12" cy="6" r="7" /><rect x="5" y="13" width="14" height="22" rx="3" /><rect x="5" y="34" width="5" height="14" transform="rotate(-20 7 34)" /><rect x="14" y="34" width="5" height="16" /></g>
+          <g transform="translate(922 412)"><circle cx="12" cy="6" r="7" /><rect x="5" y="13" width="14" height="22" rx="3" /><rect x="5" y="34" width="5" height="16" /><rect x="14" y="34" width="5" height="16" /></g>
+          <g class="hang" transform="translate(978 290)"><circle cx="12" cy="6" r="7" /><rect x="5" y="13" width="14" height="22" rx="3" /><rect x="0" y="10" width="5" height="18" transform="rotate(-150 2 10)" /><rect x="5" y="34" width="5" height="16" /><rect x="14" y="34" width="5" height="16" /></g>
+        </g>
+        <rect y="880" width="1600" height="20" fill="url(#tb-hazard)" />
+      </svg>
+      <div class="dust"></div>
+    </div>
+
+    <section class="screen title" data-screen="main">
+      <div class="title-left">
+        <div class="logo-big"><span class="l1">HOCH</span><span class="l2">STAPLER</span></div>
+        <p class="tag">Bis zu vier Lageristen, ein Seil, ein Ziel: das Versanddach.</p>
+        <nav class="title-nav">
+          <button class="nav-btn" type="button" data-focus="name"><b>Schicht starten</b><small>Raum öffnen oder beitreten</small></button>
+          <button id="solo" class="nav-btn" type="button"><b>Solo üben</b><small>ohne Server, allein am Seil</small></button>
+          <button class="nav-btn" type="button" data-go="options"><b>Optionen</b><small>Grafik, Steuerung, Ton</small></button>
+          <button class="nav-btn" type="button" data-go="controls"><b>Steuerung</b><small>Tastatur, Controller, Touch</small></button>
+        </nav>
       </div>
-      <button id="solo" class="link" type="button">Solo üben (ohne Server)</button>
-      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt im Raum: mit demselben Raumcode geht es später weiter.</p>
+      <div class="card ticket">
+        <div class="ticket-head"><span>LIEFERSCHEIN</span><span class="ticket-no">Nr. <b id="ticket-room">----</b></span></div>
+        <p id="invite" class="invite hidden"></p>
+        <label>Dein Name
+          <input id="name" maxlength="16" placeholder="z. B. Timo" autocomplete="off" enterkeyhint="go" />
+        </label>
+        <label>Raumcode
+          <div class="row">
+            <input id="room" maxlength="12" placeholder="ABCD" autocomplete="off" autocapitalize="characters" enterkeyhint="go" />
+            <button id="newroom" class="ghost" type="button">Neu</button>
+          </div>
+        </label>
+        <!-- Platz für die Spielmodus-Auswahl (z. B. alle am Seil / 2 gegen 2) -->
+        <div id="mode-slot"></div>
+        <button id="join" class="primary big" type="button">Schicht starten ▸</button>
+        <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit, wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt: mit demselben Raumcode geht es später weiter.</p>
+      </div>
+      <div class="title-foot"><span>Logistikzentrum Hochstapler · Schichtbeginn 17:45</span><span class="blink">● Rampe frei</span></div>
     </section>
 
     <section class="card screen hidden" data-screen="pause">

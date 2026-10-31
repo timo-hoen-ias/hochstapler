@@ -77,6 +77,17 @@ export class Menu {
     audio.unlock();
     if (el.dataset.act !== 'back') sfx.click();
     if (el.dataset.go) { this.show(el.dataset.go); return; }
+    if (el.dataset.focus) {
+      // „Schicht starten“ im Titelmenü: zum Lieferschein springen
+      const name = document.getElementById('name');
+      const t = name.value.trim() ? document.getElementById('join') : name;
+      t.focus();
+      t.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      document.querySelector('.ticket')?.classList.remove('pulse');
+      void document.querySelector('.ticket')?.offsetWidth;
+      document.querySelector('.ticket')?.classList.add('pulse');
+      return;
+    }
     const act = el.dataset.act;
     if (act === 'back') this.back();
     else if (act === 'reset') { settings.reset(); audio.resetSettings(); }
@@ -203,6 +214,13 @@ export class Menu {
 
   padLoop() {
     requestAnimationFrame(() => this.padLoop());
+    // Raumcode auf dem Lieferschein spiegeln (wird auch per Code gesetzt, daher abfragen)
+    const room = document.getElementById('room');
+    if (room && room.value !== this._room) {
+      this._room = room.value;
+      const t = document.getElementById('ticket-room');
+      if (t) t.textContent = room.value.toUpperCase() || '----';
+    }
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find((p) => p && p.connected);
     if (!gp) return;
