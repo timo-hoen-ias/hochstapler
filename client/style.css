@@ -253,3 +253,38 @@ button:disabled { opacity: 0.55; cursor: default; }
 #hud-players .team.mine { background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); border-radius: 0 6px 6px 0; }
 #hud-players .team-head { display: flex; font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--team); }
 #hud-players .team-head b { margin-left: auto; }
+
+/* ───────── Controller: immer sichtbarer Fokus (auch bei per Code gesetztem Fokus) ───────── */
+body[data-device=pad] button:focus, body[data-device=pad] input:focus { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 6px rgba(242,192,20,0.25); }
+body[data-device=pad] .nav-btn:focus { transform: translateX(8px); background: rgba(242,192,20,0.92); color: #15151a; border-color: #1b1b1f; outline: none; box-shadow: none; }
+body[data-device=pad] .nav-btn:focus small { opacity: 0.8; }
+.ticket button:focus-visible, .ticket input:focus-visible,
+body[data-device=pad] .ticket button:focus, body[data-device=pad] .ticket input:focus { outline: 3px solid #c0392b; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(192,57,43,0.18); }
+body[data-device=pad] .opt:has(:focus) { background: rgba(255,255,255,0.06); border-radius: 8px; }
+body[data-device=pad] .opt-range input:focus { outline-offset: 4px; }
+/* Hinweis auf dem Lieferschein: Ⓐ öffnet die Bildschirmtastatur */
+.pad-tip { display: none; font-size: 11px; font-weight: 700; opacity: 0.7; margin-left: 6px; }
+body[data-device=pad] .pad-tip { display: inline; }
+
+/* ───────── Bildschirmtastatur ───────── */
+.osk { position: fixed; inset: 0; z-index: 40; display: flex; align-items: flex-end; justify-content: center; padding: 16px; background: rgba(8,8,16,0.55); }
+.osk.hidden { display: none; }
+.osk-card { width: min(720px, 100%); background: #f3ead6; color: #22201c; border-radius: 10px; padding: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.55); }
+.osk-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.osk-title { font-weight: 900; letter-spacing: 2px; text-transform: uppercase; font-size: 13px; color: #4a4438; white-space: nowrap; }
+.osk-field { flex: 1; min-height: 44px; display: flex; align-items: center; padding: 8px 12px; background: #fffaf0; border: 2px solid #22201c; border-radius: 8px; font-size: 22px; font-weight: 700; letter-spacing: 1px; overflow: hidden; white-space: pre; }
+.osk-caret { display: inline-block; width: 2px; height: 1.1em; background: #c0392b; margin-left: 2px; animation: osk-blink 1s steps(1) infinite; }
+@keyframes osk-blink { 50% { opacity: 0; } }
+.osk-keys { display: flex; flex-direction: column; gap: 6px; }
+.osk-row { display: flex; gap: 6px; justify-content: center; }
+.osk-row button { flex: 1 1 0; max-width: 60px; min-width: 0; padding: 12px 0; font-size: 18px; background: rgba(0,0,0,0.08); color: #22201c; border-radius: 6px; }
+.osk-keys[data-kind=room] .osk-row button { max-width: 64px; }
+.osk-row.osk-extra button { max-width: none; font-size: 15px; padding: 12px 8px; }
+.osk-row .osk-space { flex: 2.5 1 0; }
+.osk-row .osk-done { background: var(--accent); color: #1a1a1a; flex: 1.5 1 0; }
+.osk-row .osk-shift.on { background: #22201c; color: #f3ead6; }
+.osk-row button:hover { background: rgba(0,0,0,0.16); }
+.osk-row button:focus, .osk-row button:focus-visible { outline: 3px solid #c0392b; outline-offset: 1px; background: #22201c; color: #f3ead6; box-shadow: none; }
+.osk-hint { display: flex; flex-wrap: wrap; gap: 6px 14px; justify-content: center; margin-top: 10px; font-size: 12px; color: #4a4438; }
+.osk-hint b { display: inline-block; min-width: 20px; padding: 1px 5px; margin-right: 4px; border-radius: 10px; background: #22201c; color: #f3ead6; font-size: 11px; text-align: center; }
+@media (max-width: 520px) { .osk { padding: 6px; } .osk-row { gap: 4px; } .osk-row button { padding: 10px 0; font-size: 15px; } }
