@@ -36,7 +36,7 @@ Einstellungen werden im Browser gespeichert.
 - Hauptmenü → **Lokal mitspielen**: Jeder Controller, an dem jemand **A** drückt, wird ein eigener Lagerist (bis zu vier). Der erste Controller gehört Spieler 1, der zusätzlich Tastatur & Maus nutzen kann; auf Wunsch spielt die Tastatur als eigener Spieler.
 - **Start** klettert nur an diesem Gerät los, **Y** geht online in den Raum aus dem Hauptmenü. Online hat jeder lokale Spieler eine eigene Verbindung zum Raum – für Server und Freunde sind es ganz normale Mitspieler (zusammen max. 4).
 - Auch mitten im Spiel kann ein freier Controller mit **A** oder **Start** einsteigen; wird ein Controller abgezogen, seilt sich sein Spieler ab.
-- Gemeinsame Kamera statt geteiltem Bildschirm: Das Seil hält alle auf wenigen Metern, darum zielt die Kamera auf die Mitte der lokalen Spieler und fährt weiter zurück, je weiter sie auseinander sind. Alle dürfen sie mit dem rechten Stick drehen.
+- Geteilter Bildschirm: Bei zwei Spielern nebeneinander (hohe Bilder passen zum Klettern), bei drei oder vier in Vierteln – mit drei Spielern zeigt das vierte Viertel das ganze Team. Jeder dreht seine eigene Kamera (mit Kamera-Kollision); Nebel, Godrays und Tiefenunschärfe laufen pro Ansicht, die teure Umgebungsverdeckung (AO) ist im Splitscreen aus und die Schattenkarte wird nur einmal pro Bild berechnet. In den Optionen lässt sich stattdessen eine gemeinsame Kamera wählen, die alle im Bild hält.
 
 ## Aufbau des Turms (~1090 m, 42 Abschnitte)
 

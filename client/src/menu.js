@@ -22,6 +22,8 @@ const OPTIONS = [
   { key: 'touch', label: 'Touch-Steuerung', type: 'choice', choices: [['auto', 'Automatisch'], ['on', 'An'], ['off', 'Aus']] },
   { key: 'hints', label: 'Tastenhinweise einblenden', type: 'toggle' },
   { key: 'shake', label: 'Kamerawackeln', type: 'toggle' },
+  { key: 'splitscreen', label: 'Lokaler Koop: geteilter Bildschirm', type: 'toggle',
+    hint: 'Aus: eine gemeinsame Kamera, die alle lokalen Spieler im Bild hält.' },
   { key: 'muted', label: 'Ton (Taste M)', type: 'audioMute' },
   vol('master', 'Gesamtlautstärke'),
   vol('music', 'Musik'),
