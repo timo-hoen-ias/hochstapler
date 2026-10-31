@@ -1,4 +1,8 @@
 // WebSocket-Verbindung zum Raum (Durable Object). Fällt bei Fehlern auf Solo zurück.
+
+// Kennung dieses Browser-Tabs: alle lokalen Spieler hier teilen sie (2 gegen 2: gleiches Team)
+const DEVICE = Math.random().toString(36).slice(2, 10);
+
 export class Net {
   constructor(room, name, handlers) {
     this.room = room;
@@ -19,7 +23,7 @@ export class Net {
     try { ws = new WebSocket(url); } catch { this.h.offline?.(); return; }
     this.ws = ws;
     ws.onopen = () => {
-      ws.send(JSON.stringify({ t: 'hello', name: this.name }));
+      ws.send(JSON.stringify({ t: 'hello', name: this.name, dev: DEVICE }));
     };
     ws.onmessage = (ev) => {
       let m;

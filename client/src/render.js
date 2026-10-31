@@ -97,6 +97,48 @@ export class Renderer {
       this.composer.setPixelRatio(this.renderer.getPixelRatio());
       this.composer.setSize(w, h);
     }
+    this.splitKey = null; // Splitscreen-Aufteilung beim nächsten Bild neu berechnen
+  }
+
+  // ───────── Splitscreen ─────────
+  // 2 Ansichten nebeneinander (hohe Bilder passen zum Klettern), 3–4 als Viertel.
+  // Liefert Rechtecke in CSS-Pixeln, y von unten (wie renderer.setViewport).
+  splitRects(n) {
+    const W = window.innerWidth, H = window.innerHeight;
+    if (n === 2) {
+      const w = Math.floor(W / 2);
+      return [[0, 0, w, H], [W - w, 0, w, H]];
+    }
+    const w = Math.floor(W / 2), h = Math.floor(H / 2);
+    return [[0, H - h, w, h], [W - w, H - h, w, h], [0, 0, w, h], [W - w, 0, w, h]];
+  }
+
+  setSplit(n) {
+    const key = n ? `${n}:${window.innerWidth}x${window.innerHeight}` : null;
+    if (key === this.splitKey) return;
+    const was = this.splitKey;
+    this.splitKey = key;
+    // Umgebungsverdeckung (GTAO) ist pro Ansicht zu teuer – im Splitscreen aus
+    this.composer?.passes.forEach((p) => { if (p.constructor === GTAOPass) p.enabled = !n; });
+    if (!n) { if (was) this.resize(); return; }
+    const [, , w, h] = this.splitRects(n)[0];
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    // Alle Ansichten sind gleich groß: ein Composer in Ansichtsgröße reicht
+    this.composer?.setSize(w, h);
+  }
+
+  // Landemarker + Blob-Schatten unter einem Spieler
+  placeMarker(colliders, pos) {
+    const gy = this.groundBelow(colliders, pos);
+    const h = pos[1] - gy;
+    const show = Number.isFinite(gy);
+    this.blob.visible = show && !this.quality.shadows;
+    this.blob.position.set(pos[0], gy + 0.02, pos[2]);
+    this.blob.scale.setScalar(Math.max(0.4, 1 - h * 0.08));
+    this.marker.visible = show && h > 1.2;
+    this.marker.position.set(pos[0], gy + 0.03, pos[2]);
+    this.marker.material.opacity = Math.min(0.9, 0.3 + h * 0.08);
   }
 
   // Grafikqualität (Auflösung, Schatten, Post-Processing) live umschalten
@@ -137,6 +179,14 @@ export class Renderer {
         const ao = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
         ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1 });
         ao.blendIntensity = 0.85;
+        // Namensschilder (Sprites) nicht in die AO-Tiefe zeichnen: mit Override-Material würden
+        // sie als schräge, dunkle Vierecke erscheinen
+        const aoRender = ao.render.bind(ao);
+        ao.render = (...args) => {
+          const shown = [];
+          for (const av of this.avatars.values()) if (av.tag.visible) { av.tag.visible = false; shown.push(av.tag); }
+          try { aoRender(...args); } finally { for (const t of shown) t.visible = true; }
+        };
         c.addPass(ao);
       }
       if (q.bloom) c.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.5, 0.88));
@@ -643,14 +693,19 @@ export class Renderer {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 64;
     const x = c.getContext('2d');
-    x.fillStyle = 'rgba(15,20,30,0.7)';
-    x.beginPath(); x.roundRect(4, 8, 248, 48, 14); x.fill();
-    x.fillStyle = color; x.fillRect(16, 22, 18, 18);
-    x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'; x.textAlign = 'center';
-    x.fillText(name, 140, 42);
+    // Nur der Name (mit Kontur für Lesbarkeit), kein Hintergrundschild
+    x.font = 'bold 30px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineJoin = 'round';
+    x.lineWidth = 6; x.strokeStyle = 'rgba(10,12,20,0.85)';
+    x.strokeText(name, 128, 34);
+    x.fillStyle = '#fff'; x.fillText(name, 128, 34);
+    // Farbstrich unter dem Namen = Spielerfarbe
+    const w = Math.min(200, x.measureText(name).width);
+    x.fillStyle = 'rgba(10,12,20,0.85)'; x.fillRect(128 - w / 2 - 2, 52, w + 4, 8);
+    x.fillStyle = color; x.fillRect(128 - w / 2, 54, w, 4);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, depthWrite: false }));
     s.scale.set(1.6, 0.4, 1);
     s.renderOrder = 10;
     return s;
@@ -726,7 +781,9 @@ export class Renderer {
     }
   }
 
-  update(dt, colliders, focus) {
+  // views (Splitscreen, optional): [{ pos, look, focus }] je Ansicht – Kamera-Position,
+  // Blickpunkt und der Spieler, unter dem der Landemarker liegt.
+  update(dt, colliders, focus, views = null) {
     for (let i = 0; i < this.moverMeshes.length; i++) {
       const { m, g } = this.moverMeshes[i];
       const b = colliders.moverBoxes[i];
@@ -768,15 +825,7 @@ export class Renderer {
     this.sun.target.position.set(fx, fy, fz);
 
     // Landemarker + Blob-Schatten unter dem lokalen Spieler
-    const gy = this.groundBelow(colliders, focus);
-    const h = focus[1] - gy;
-    const show = Number.isFinite(gy);
-    this.blob.visible = show && !this.quality.shadows;
-    this.blob.position.set(focus[0], gy + 0.02, focus[2]);
-    this.blob.scale.setScalar(Math.max(0.4, 1 - h * 0.08));
-    this.marker.visible = show && h > 1.2;
-    this.marker.position.set(focus[0], gy + 0.03, focus[2]);
-    this.marker.material.opacity = Math.min(0.9, 0.3 + h * 0.08);
+    this.placeMarker(colliders, focus);
 
     // Staub wandert mit und treibt langsam
     const dp = this.dust.geometry.attributes.position;
@@ -792,18 +841,48 @@ export class Renderer {
     }
     dp.needsUpdate = true;
 
-    // Kamera-Wackler (Landungen, Seilruck)
-    if (this.shake > 0.001 && settings.get().shake) {
-      const a = this.shake * 0.12;
-      this.camera.position.x += (Math.random() - 0.5) * a;
-      this.camera.position.y += (Math.random() - 0.5) * a;
-      this.camera.position.z += (Math.random() - 0.5) * a;
-    }
+    const shake = this.shake > 0.001 && settings.get().shake ? this.shake * 0.12 : 0;
+    const jitter = (cam) => {
+      if (!shake) return;
+      cam.position.x += (Math.random() - 0.5) * shake;
+      cam.position.y += (Math.random() - 0.5) * shake;
+      cam.position.z += (Math.random() - 0.5) * shake;
+    };
     this.shake *= Math.exp(-dt * 9);
-
     patchFogMaterials(this.scene);
-    this.updateFog(dt, focus);
-    if (this.composer) this.composer.render(dt);
-    else this.renderer.render(this.scene, this.camera);
+    this.setSplit(views ? views.length : 0);
+
+    if (!views) {
+      // Kamera-Wackler (Landungen, Seilruck)
+      jitter(this.camera);
+      this.updateFog(dt, focus);
+      if (this.composer) this.composer.render(dt);
+      else this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
+    // Splitscreen: dieselbe Kamera und Effektkette nacheinander für jede Ansicht,
+    // die Schattenkarte nur einmal pro Bild
+    const r = this.renderer;
+    const rects = this.splitRects(views.length);
+    const autoShadow = r.shadowMap.autoUpdate;
+    r.shadowMap.autoUpdate = false;
+    r.setScissorTest(true);
+    views.forEach((v, i) => {
+      const [x, y, w, h] = rects[i];
+      r.setViewport(x, y, w, h);
+      r.setScissor(x, y, w, h);
+      this.camera.position.set(v.pos[0], v.pos[1], v.pos[2]);
+      this.camera.lookAt(v.look[0], v.look[1], v.look[2]);
+      jitter(this.camera);
+      this.placeMarker(colliders, v.focus);
+      this.updateFog(i === 0 ? dt : 0, focus);
+      r.shadowMap.needsUpdate = i === 0;
+      if (this.composer) this.composer.render(dt);
+      else r.render(this.scene, this.camera);
+    });
+    r.setScissorTest(false);
+    r.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    r.shadowMap.autoUpdate = autoShadow;
   }
 }

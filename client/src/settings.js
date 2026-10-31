@@ -22,6 +22,7 @@ export const DEFAULTS = {
   dof: 'auto', // Tiefenunschärfe: auto | on | off
   fog: 'normal', // Distanznebel: light | normal | dense
   heightFog: true,
+  splitscreen: true, // lokaler Koop: geteilter Bildschirm statt gemeinsamer Kamera
 };
 
 // Effekt an/aus, wobei 'auto' der Grafikqualität folgt

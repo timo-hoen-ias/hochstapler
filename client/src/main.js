@@ -8,6 +8,7 @@ import { Menu } from './menu.js';
 import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
+import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -30,6 +31,24 @@ if (params.get('room')) {
   $('invite').textContent = `Du wurdest in Raum ${params.get('room').toUpperCase()} eingeladen – Namen eingeben und los!`;
   $('invite').classList.remove('hidden');
 }
+// Spielmodus-Wunsch auf dem Lieferschein: gilt, wenn du Gastgeber bist und ihr zu viert seid
+const modeWish = { get: () => (store.get('hochstapler.mode') === 'teams' ? 'teams' : 'rope') };
+function renderModeWish() {
+  const w = modeWish.get();
+  $('mode-slot').innerHTML = `<span class="mode-label">Spielmodus</span>
+    <div class="mode-pick" role="radiogroup">
+      <button type="button" class="ghost${w === 'rope' ? ' on' : ''}" data-wish="rope" role="radio" aria-checked="${w === 'rope'}"><b>Alle an einem Seil</b><small>2–4 Spieler</small></button>
+      <button type="button" class="ghost${w === 'teams' ? ' on' : ''}" data-wish="teams" role="radio" aria-checked="${w === 'teams'}"><b>2 gegen 2</b><small>zwei Seilschaften, Wettrennen</small></button>
+    </div>`;
+}
+$('mode-slot').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wish]');
+  if (!b) return;
+  store.set('hochstapler.mode', b.dataset.wish);
+  renderModeWish();
+  $('mode-slot').querySelector(`[data-wish="${b.dataset.wish}"]`)?.focus();
+});
+renderModeWish();
 $('newroom').onclick = () => { $('room').value = randomCode(); $('invite').classList.add('hidden'); };
 $('join').onclick = () => start(false);
 $('solo').onclick = () => start(true);
@@ -42,6 +61,9 @@ const menu = new Menu({
   copylink: () => game?.copyLink(),
   // Pausemenü: ganzes Team zum letzten Zwischenstopp holen
   respawn: () => { game?.warpTeam(); game?.resume(); },
+  // Spielmodus (nur Gastgeber): Seil für alle ↔ 2 gegen 2, Teams neu auslosen
+  mode: () => game?.toggleMode(),
+  shuffle: () => game?.requestMode('teams', true),
   screen: (cur) => (cur === 'local' ? lobby.open() : lobby.close()),
   quit: () => {
     const url = new URL(location.href);
@@ -98,7 +120,7 @@ class Game {
     this.locals = [];
     this.view.locals = this.locals; // Kranhaken folgen den Händen lokaler Spieler
     this.remotes = new Map();
-    this.camYaw = 0;
+    this.camYaw = 0; // gemeinsame Kamera (ein Spieler oder Splitscreen aus)
     this.camPitch = 0.35;
     this.camDist = 7.5;
     this.paused = false;
@@ -112,6 +134,10 @@ class Game {
     this.hudAcc = 0;
     this.last = performance.now();
     this.tension = 0;
+    this.mode = 'rope'; // 'rope' = alle an einem Seil, 'teams' = 2 gegen 2
+    this.tcp = [0, 0]; // Zwischenstopps beider Teams (nur 2 gegen 2)
+    this.race = null; // { startedAt, winner, time } im Teammodus
+    this.modeWish = modeWish.get();
     this.netReady = false; // Verbindung von Spieler 1 steht (oder ist endgültig offline)
     this.padPrev = new Map(); // Tastenzustand freier Controller (Einsteigen mitten im Spiel)
 
@@ -150,7 +176,9 @@ class Game {
   newLocal(name, slot) {
     const lp = {
       id: 'local' + slot + '-' + Math.random().toString(36).slice(2, 6), name, slot, color: LOCAL_COLORS[slot % LOCAL_COLORS.length],
-      body: createBody(this.level.spawn), input: null, net: null, jump: false, tension: 0, sendAcc: 0, online: false,
+      body: createBody(this.level.spawn), input: null, net: null, jump: false, tension: 0, sendAcc: 0, online: false, team: 0,
+      // eigene Kamera für den Splitscreen
+      cam: { yaw: this.camYaw || 0, pitch: 0.35, dist: 7.5, smooth: undefined },
     };
     this.locals.push(lp);
     this.view.createAvatar(lp.id, name, lp.color);
@@ -215,7 +243,7 @@ class Game {
 
   setLocalId(lp, info) {
     const old = lp.id;
-    Object.assign(lp, { id: info.id, name: info.name, slot: info.slot, color: info.color, online: true });
+    Object.assign(lp, { id: info.id, name: info.name, slot: info.slot, color: info.color, team: info.team ?? 0, online: true });
     this.view.removeAvatar(old);
     this.view.createAvatar(lp.id, lp.name, lp.color);
     // Falls der Raum den Spieler schon als Mitspieler gemeldet hat: entfernen
@@ -228,7 +256,8 @@ class Game {
     if (!this.locals.includes(lp)) return;
     if (m.t === 'welcome') {
       this.setLocalId(lp, m.you);
-      if (this.cp > (m.cp || 0)) lp.net.send({ t: 'cp', i: this.cp });
+      if (this.mode === 'teams') { this.respawn(lp, false); this.refreshModeUi(); }
+      else if (this.cp > (m.cp || 0)) lp.net.send({ t: 'cp', i: this.cp });
     } else if (m.t === 'full') {
       this.toast(`Raum ist voll (max. 4) – ${lp.name} kann nicht mitspielen`);
       this.removeLocal(lp);
@@ -243,11 +272,15 @@ class Game {
         this.startedAt = m.startedAt;
         this.played = m.played || 0;
         this.board = m.board;
+        this.mode = m.mode || 'rope';
+        this.tcp = m.tcp || [0, 0];
+        this.race = m.race || null;
         const others = m.players.filter((p) => !this.isLocal(p.id));
         for (const p of others) this.addRemote(p);
-        this.setCheckpoint(m.cp || 0, false);
-        // Neben einem Mitspieler starten, sonst am Zwischenstopp des Teams
-        const near = others.find((p) => p.s && p.s.p);
+        if (this.mode === 'teams') this.view.setCheckpointReached(this.cpOf(this.p1));
+        else this.setCheckpoint(m.cp || 0, false);
+        // Neben einem Mitspieler (aus dem eigenen Team) starten, sonst am Zwischenstopp
+        const near = others.find((p) => p.s && p.s.p && (this.mode !== 'teams' || p.team === this.p1.team));
         if (near) this.body.pos = [near.s.p[0], near.s.p[1] + 0.5, near.s.p[2]];
         else this.respawn(this.p1, false);
         for (const lp of this.locals) {
@@ -258,9 +291,11 @@ class Game {
         }
         const n = others.length + this.locals.length;
         this.toast(others.length ? `Raum ${this.room}: ${n} Lageristen am Seil` : `Raum ${this.room} geöffnet – lade Freunde ein!`);
-        if (this.cp > 0) this.toast(`Fortschritt geladen: ${this.cpLabel(this.cp)}`);
-        if (this.cp > (m.cp || 0)) this.net.send({ t: 'cp', i: this.cp });
+        if (this.mode === 'teams') this.toast(`2 gegen 2 läuft – du kletterst für ${TEAMS[this.p1.team].name}`);
+        else if (this.cp > 0) this.toast(`Fortschritt geladen: ${this.cpLabel(this.cp)}`);
+        if (this.mode !== 'teams' && this.cp > (m.cp || 0)) this.net.send({ t: 'cp', i: this.cp });
         this.netReady = true;
+        this.maybeAutoMode();
         this.connectLocals();
         break;
       }
@@ -270,9 +305,11 @@ class Game {
         // Ein eigener lokaler Spieler, dessen Begrüßung noch unterwegs ist, wird nicht angesagt
         const pending = this.locals.some((l) => !l.online && l !== this.p1 && l.name === m.player.name);
         if (!pending) {
-          this.toast(`${m.player.name} hängt sich ans Seil`);
+          this.toast(this.mode === 'teams' ? `${m.player.name} klettert für ${TEAMS[m.player.team ?? 0].name}` : `${m.player.name} hängt sich ans Seil`);
           audio.play('join');
         }
+        this.refreshModeUi();
+        this.maybeAutoMode();
         break;
       }
       case 'leave':
@@ -280,6 +317,7 @@ class Game {
         this.removeRemote(m.id);
         this.toast(`${m.name} hat sich abgeseilt`);
         audio.play('leave');
+        this.refreshModeUi();
         break;
       case 's': {
         const r = this.remotes.get(m.id);
@@ -300,26 +338,46 @@ class Game {
         break;
       }
       case 'finish':
+        if (m.team !== undefined) { this.showRaceFinish(m); break; }
         this.board = m.board;
         this.showFinish(m.name, m.time);
         break;
       case 'cp':
+        if (this.mode === 'teams' && m.team !== undefined) {
+          if (m.i <= this.tcp[m.team]) break;
+          this.tcp[m.team] = m.i;
+          // Eigenes Team (auch ein lokaler Mitspieler) oder Gegner?
+          if (this.locals.some((l) => l.team === m.team)) {
+            if (m.team === this.p1.team) this.view.setCheckpointReached(m.i);
+            this.toast(`${m.name} hat ${this.cpLabel(m.i)} erreicht – gespeichert`);
+          } else this.toast(`${TEAMS[m.team].short}: ${this.cpLabel(m.i)}`);
+          break;
+        }
         if (m.i > this.cp) { this.setCheckpoint(m.i, false); this.toast(`${m.name} hat ${this.cpLabel(m.i)} erreicht – gespeichert`); }
         break;
-      case 'warp':
-        this.toast(`${m.name} holt das Team zum ${this.cpLabel(this.cp)}`);
-        for (const lp of this.locals) this.respawn(lp, false);
+      case 'warp': {
+        // Bei 2 gegen 2 holt man nur das eigene Team zurück
+        const hit = this.locals.filter((lp) => this.mode !== 'teams' || m.team === undefined || lp.team === m.team);
+        if (!hit.length) break;
+        this.toast(`${m.name} holt das Team zum ${this.cpLabel(this.cpOf(hit[0]))}`);
+        for (const lp of hit) this.respawn(lp, false);
         break;
+      }
       case 'restart':
-        this.startedAt = m.startedAt;
-        this.played = 0;
+        if (m.race) { this.race = m.race; this.tcp = [0, 0]; } else { this.startedAt = m.startedAt; this.played = 0; }
         this.setCheckpoint(0, false, true);
         for (const lp of this.locals) this.respawn(lp, true);
         $('finish').classList.add('hidden');
         this.finished = false;
         this.setInputEnabled(!this.paused);
-        this.toast(`${m.by} startet eine neue Schicht`);
+        this.toast(m.race ? `${m.by} startet die Revanche – auf die Plätze!` : `${m.by} startet eine neue Schicht`);
         audio.play('respawn');
+        break;
+      case 'mode':
+        this.applyMode(m);
+        break;
+      case 'modeError':
+        this.toast(m.reason);
         break;
       case 'full':
         this.toast('Raum ist voll (max. 4) – ihr spielt lokal');
@@ -331,7 +389,7 @@ class Game {
     if (this.remotes.has(p.id) || this.isLocal(p.id)) return;
     const s = p.s || {};
     const r = {
-      id: p.id, name: p.name, slot: p.slot, color: p.color,
+      id: p.id, name: p.name, slot: p.slot, color: p.color, team: p.team ?? 0,
       target: s.p || [...this.level.spawn], rpos: s.p ? [...s.p] : [...this.level.spawn],
       vel: s.v || [0, 0, 0], yaw: s.y || 0, grounded: s.g ?? true, braced: !!s.b, age: 0, maxY: 0,
     };
@@ -344,14 +402,110 @@ class Game {
     this.view.removeAvatar(id);
   }
 
-  // Seilschaft: alle Spieler nach Slot sortiert, Nachbarn sind verbunden
-  chain() {
-    const all = [
-      ...this.locals.map((l) => ({ id: l.id, slot: l.slot, local: l })),
-      ...[...this.remotes.values()].map((r) => ({ id: r.id, slot: r.slot, remote: r })),
+  everyone() {
+    return [
+      ...this.locals.map((l) => ({ id: l.id, slot: l.slot, team: l.team ?? 0, local: l })),
+      ...[...this.remotes.values()].map((r) => ({ id: r.id, slot: r.slot, team: r.team ?? 0, remote: r })),
     ];
-    all.sort((a, b) => a.slot - b.slot);
-    return all;
+  }
+
+  // Seilschaften: nach Slot sortiert, Nachbarn sind verbunden.
+  // Alle an einem Seil – oder bei 2 gegen 2 ein Seil je Team.
+  chains() {
+    return ropeGroups(this.everyone(), this.mode);
+  }
+
+  // ───── Spielmodus ─────
+  // Lokaler Spieler, der Gastgeber des Raums ist (oder null)
+  hostLocal() {
+    const h = hostOf(this.everyone().filter((p) => p.remote || p.local.online));
+    return h && h.local ? h.local : null;
+  }
+
+  playerCount() {
+    return this.remotes.size + this.locals.filter((l) => l.online).length;
+  }
+
+  toggleMode() {
+    this.requestMode(this.mode === 'teams' ? 'rope' : 'teams');
+  }
+
+  requestMode(mode, shuffle = false, quiet = false) {
+    const say = (t) => { if (!quiet) this.toast(t); };
+    if (!this.net.online) { say('Spielmodus geht nur online im Raum'); return; }
+    const host = this.hostLocal();
+    if (!host) { say('Nur der Gastgeber kann den Spielmodus ändern'); return; }
+    const err = modeError(mode, this.playerCount());
+    if (err) { say(err); return; }
+    host.net.send({ t: 'mode', mode, shuffle });
+  }
+
+  // Wunsch aus dem Hauptmenü: Sobald der Raum voll ist, startet der Gastgeber 2 gegen 2
+  maybeAutoMode() {
+    if (this.modeWish !== 'teams' || this.mode === 'teams' || this.autoModeSent) return;
+    if (!this.hostLocal() || this.playerCount() !== 4) {
+      if (this.hostLocal() && !this.waitHint) { this.waitHint = true; this.toast('2 gegen 2 startet, sobald ihr zu viert seid'); }
+      return;
+    }
+    this.autoModeSent = true;
+    this.requestMode('teams', false, true);
+  }
+
+  applyMode(m) {
+    const was = this.mode;
+    this.mode = m.mode;
+    this.race = m.race || null;
+    this.tcp = [0, 0];
+    const t = m.teams || {};
+    for (const lp of this.locals) if (t[lp.id] !== undefined) lp.team = t[lp.id];
+    for (const r of this.remotes.values()) if (t[r.id] !== undefined) r.team = t[r.id];
+    this.finished = false;
+    $('finish').classList.add('hidden');
+    this.setInputEnabled(!this.paused);
+    if (this.mode === 'teams') {
+      // Rennstart: alle unten, ein Seil je Team
+      this.setCheckpoint(0, false, true);
+      for (const lp of this.locals) this.respawn(lp, true);
+      this.toast(m.shuffle ? `${m.by} lost die Teams neu aus` : `${m.by} startet 2 gegen 2!`);
+      for (const team of new Set(this.locals.map((l) => l.team))) {
+        const names = this.everyone().filter((p) => p.team === team).map((p) => (p.local ? p.local.name : p.remote.name));
+        this.toast(`${TEAMS[team].name}: ${names.join(' & ')}`);
+      }
+    } else {
+      // Zurück an ein gemeinsames Seil, am gemeinsamen Zwischenstopp
+      this.setCheckpoint(m.cp || 0, false, true);
+      if (was === 'teams') for (const lp of this.locals) this.respawn(lp, false);
+      this.toast(`${m.by}: wieder alle an einem Seil`);
+    }
+    audio.play('respawn');
+    this.refreshModeUi();
+  }
+
+  // Pausemenü: aktueller Modus; umstellen darf nur der Gastgeber
+  refreshModeUi() {
+    const online = this.net?.online;
+    const n = this.playerCount();
+    const host = online && !!this.hostLocal();
+    const here = this.locals.length;
+    $('pause-room').textContent = online
+      ? `Raum ${this.room} · ${n} ${this.mode === 'teams' ? 'Spieler · 2 gegen 2' : 'am Seil'}${here > 1 ? ` (${here} hier)` : ''}`
+      : here > 1 ? `Lokal · ${here} am Seil` : 'Solo';
+    $('mode-btn').textContent = `◀ ${modeLabel(this.mode)} ▶`;
+    $('mode-btn').disabled = !host || (this.mode !== 'teams' && n !== 4);
+    $('shuffle-btn').classList.toggle('hidden', !(host && this.mode === 'teams'));
+    let note;
+    if (!online) note = 'Spielmodus gibt es nur online im Raum.';
+    else if (n < 2) note = 'Allein im Raum. Mit 2 oder 3 Spielern hängen alle an einem Seil, zu viert geht auch 2 gegen 2.';
+    else if (n < 4 && this.mode !== 'teams') note = `${n} Spieler: alle an einem Seil. Für 2 gegen 2 braucht ihr genau 4.`;
+    else if (this.mode === 'teams') note = `${this.locals.length > 1 ? 'Ihr klettert' : 'Du kletterst'} für ${[...new Set(this.locals.map((l) => TEAMS[l.team].name))].join(' und ')} – erstes Team oben gewinnt.`;
+    else note = '4 Spieler: alle an einem Seil oder zwei Seilschaften gegeneinander.';
+    if (online && !host) note += ' Umstellen kann nur der Gastgeber.';
+    $('mode-note').textContent = note;
+  }
+
+  // Erreichter Zwischenstopp für diesen Spieler (bei 2 gegen 2 der seines Teams)
+  cpOf(lp) {
+    return this.mode === 'teams' ? this.tcp[lp.team ?? 0] || 0 : this.cp;
   }
 
   // ───── Eingabe ─────
@@ -433,10 +587,7 @@ class Game {
     this.paused = true;
     this.setInputEnabled(false);
     if (document.pointerLockElement) document.exitPointerLock?.();
-    const n = this.remotes.size + this.locals.length;
-    $('pause-room').textContent = this.net.online
-      ? `Raum ${this.room} · ${n} am Seil${this.locals.length > 1 ? ` (${this.locals.length} hier)` : ''}`
-      : this.locals.length > 1 ? `Lokal · ${this.locals.length} am Seil` : 'Solo';
+    this.refreshModeUi();
     menu.open('pause');
     this.updateClickHint();
   }
@@ -475,17 +626,34 @@ class Game {
     $('crosshair').classList.toggle('hidden', settings.touchEnabled() || this.locals.length > 1);
   }
 
-  // Alle lokalen Spieler abfragen. Die Kamera ist gemeinsam: alle dürfen sie drehen,
-  // gelaufen wird relativ zur Kamera.
+  // Mehrere Spieler an einem Gerät: geteilter Bildschirm (abschaltbar in den Optionen)
+  split() { return this.locals.length > 1 && settings.get().splitscreen !== false; }
+
+  // Alle lokalen Spieler abfragen. Splitscreen: jeder dreht seine eigene Kamera.
+  // Sonst ist die Kamera gemeinsam und alle dürfen sie drehen. Gelaufen wird relativ
+  // zur Kamera, die der Spieler sieht.
   readInputs(dt) {
     const polled = this.locals.map((lp) => lp.input.poll(dt));
-    let lookX = 0, lookY = 0, zoom = 0;
-    for (const i of polled) { lookX += i.lookX; lookY += i.lookY; zoom += i.zoom; }
-    this.camYaw += lookX;
-    this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + lookY));
-    if (zoom) this.camDist = Math.min(16, Math.max(3, this.camDist + zoom));
-    const sy = Math.sin(this.camYaw), cy = Math.cos(this.camYaw);
-    return polled.map((i) => {
+    const split = this.split();
+    if (split) {
+      this.locals.forEach((lp, k) => {
+        const i = polled[k], c = lp.cam;
+        c.yaw += i.lookX;
+        c.pitch = Math.min(1.35, Math.max(-0.5, c.pitch + i.lookY));
+        if (i.zoom) c.dist = Math.min(16, Math.max(3, c.dist + i.zoom));
+      });
+    } else {
+      let lookX = 0, lookY = 0, zoom = 0;
+      for (const i of polled) { lookX += i.lookX; lookY += i.lookY; zoom += i.zoom; }
+      this.camYaw += lookX;
+      this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + lookY));
+      if (zoom) this.camDist = Math.min(16, Math.max(3, this.camDist + zoom));
+      // Beim Wechsel in den Splitscreen startet jeder mit dem gemeinsamen Blick
+      for (const lp of this.locals) Object.assign(lp.cam, { yaw: this.camYaw, pitch: this.camPitch, dist: this.camDist });
+    }
+    return polled.map((i, k) => {
+      const yaw = split ? this.locals[k].cam.yaw : this.camYaw;
+      const sy = Math.sin(yaw), cy = Math.cos(yaw);
       const fx = i.forward, rx = i.right;
       // Kamera schaut entlang (-sin yaw, -cos yaw)
       let x = -sy * fx + cy * rx;
@@ -538,10 +706,11 @@ class Game {
       }
       // Zwischenstopp erreicht?
       const g0 = b.ground;
-      if (b.grounded && g0 && g0.cp !== undefined && g0.cp > this.cp) this.setCheckpoint(g0.cp, true, false, lp);
+      const mine = this.cpOf(lp);
+      if (b.grounded && g0 && g0.cp !== undefined && g0.cp > mine) this.setCheckpoint(g0.cp, true, false, lp);
       // Abgestürzt: deutlich unter den letzten Zwischenstopp gefallen oder aus der Welt
       const p = b.pos;
-      const cpY = this.level.checkpoints[this.cp].pos[1];
+      const cpY = this.level.checkpoints[this.cpOf(lp)].pos[1];
       // Wer fällt, landet weiter unten und klettert von dort wieder hoch. Zurück zum
       // Zwischenstopp geht es erst unten auf dem Hof (oder aus der Welt heraus).
       const onYard = b.grounded && b.ground && b.ground.big && cpY > 2;
@@ -549,7 +718,7 @@ class Game {
         this.respawn(lp, false);
         audio.play('respawn');
         evs[k].landed = false;
-        this.toast(locals.length > 1 ? `${lp.name} abgestürzt – zurück zum ${this.cpLabel(this.cp)}` : `Abgestürzt – zurück zum ${this.cpLabel(this.cp)}`);
+        this.toast(locals.length > 1 ? `${lp.name} abgestürzt – zurück zum ${this.cpLabel(this.cpOf(lp))}` : `Abgestürzt – zurück zum ${this.cpLabel(this.cpOf(lp))}`);
       }
       // Weitere lokale Spieler: Sprünge/Landungen räumlich hörbar
       if (k > 0) {
@@ -577,11 +746,10 @@ class Game {
       this.view.updateAvatar(lp.id, b.pos, b.vel, b.yaw, b.grounded, b.braced, dt, single);
     }
 
-    // Seile zeichnen
-    const chain = this.chain();
+    // Seile zeichnen (bei 2 gegen 2 eins je Team)
     const pairs = [];
-    for (let i = 1; i < chain.length; i++) {
-      pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
+    for (const chain of this.chains()) {
+      for (let i = 1; i < chain.length; i++) pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
     }
     this.view.setRopes(pairs);
 
@@ -602,22 +770,25 @@ class Game {
       const p = lp.body.pos;
       if (!this.finished && p[0] > g.min[0] && p[0] < g.max[0] && p[2] > g.min[2] && p[2] < g.max[2] && p[1] >= g.min[1] - 0.1 && p[1] < g.max[1]) {
         this.finished = true;
-        if (this.net.online) this.net.send({ t: 'goal' });
+        // Über die Verbindung dieses Spielers melden: bei 2 gegen 2 zählt sein Team
+        if (this.net.online) (lp.net?.online ? lp.net : this.net).send({ t: 'goal' });
         else this.showFinish(locals.length > 1 ? locals.map((l) => l.name).join(', ') : this.name, this.shiftTime());
       }
     }
 
-    this.updateCamera(dt);
-    const cp = this.view.camera.position;
+    const views = this.updateCamera(dt);
+    this.updateSplitLabels(views);
+    // Hören wie Spieler 1: mit dessen Kamera
+    const cp = views ? views[0].pos : this.view.camera.position.toArray();
     const p1 = this.p1.body;
     audio.update({
       dt, time: tNow, world: this.world, body: p1, tension: this.tension, ...evs[0],
-      camPos: [cp.x, cp.y, cp.z], camYaw: this.camYaw,
+      camPos: cp, camYaw: views ? this.p1.cam.yaw : this.camYaw,
       section: sectionAtHeight(this.level, Math.max(0, this.topY())),
     });
     this.hudAcc += dt;
     if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
-    this.view.update(dt, this.world, p1.pos);
+    this.view.update(dt, this.world, views ? this.cameraFocus().target : p1.pos, views);
     // Erst nach Spieler 1 (der sich in readInputs seinen Controller nimmt): freie Controller dürfen einsteigen
     if (!this.paused && !this.finished) this.pollNewPads();
   }
@@ -635,9 +806,8 @@ class Game {
   }
 
   ropeStep(dt) {
-    const chain = this.chain();
     let total = 0;
-    chain.forEach((c, idx) => {
+    for (const chain of this.chains()) chain.forEach((c, idx) => {
       if (!c.local) return;
       const body = c.local.body;
       let tension = 0;
@@ -657,7 +827,7 @@ class Game {
   // Zurück zum Zwischenstopp des Teams (oder zum Start). Jeder Spieler bekommt
   // seinen eigenen Platz auf der Plattform, damit niemand ineinander steht.
   respawn(lp, toStart) {
-    const cp = this.level.checkpoints[toStart ? 0 : this.cp];
+    const cp = this.level.checkpoints[toStart ? 0 : this.cpOf(lp)];
     const pos = [...cp.pos];
     const slot = lp.slot || 0;
     const spread = cp.box ? Math.min(0.7, (cp.box.max[0] - cp.box.min[0]) / 2 - 0.4) : 1.8;
@@ -672,17 +842,31 @@ class Game {
   }
 
   warpTeam() {
-    this.net.send({ t: 'warp' });
+    if (this.mode === 'teams') {
+      // Je Team, das hier spielt, eine Meldung über einen Spieler dieses Teams
+      for (const team of new Set(this.locals.map((l) => l.team))) {
+        const lp = this.locals.find((l) => l.team === team && l.net?.online) || this.p1;
+        lp.net?.send({ t: 'warp' });
+      }
+    } else this.net.send({ t: 'warp' });
     for (const lp of this.locals) this.respawn(lp, false);
     audio.play('respawn');
-    this.toast(`Team zum ${this.cpLabel(this.cp)} geholt`);
+    this.toast(`Team zum ${this.cpLabel(this.cpOf(this.p1))} geholt`);
   }
 
   setCheckpoint(i, announce, force, by = this.p1) {
-    if (!force && i <= this.cp) return;
-    this.cp = i;
-    store.set('hochstapler.cp.' + this.room, String(i));
-    this.view.setCheckpointReached(i);
+    if (this.mode === 'teams') {
+      // 2 gegen 2: Fortschritt des Teams dieses Spielers, nicht offline gemerkt
+      const t = by.team ?? 0;
+      if (!force && i <= this.tcp[t]) return;
+      if (force) this.tcp = [i, i]; else this.tcp[t] = i;
+      if (force || t === this.p1.team) this.view.setCheckpointReached(i);
+    } else {
+      if (!force && i <= this.cp) return;
+      this.cp = i;
+      store.set('hochstapler.cp.' + this.room, String(i));
+      this.view.setCheckpointReached(i);
+    }
     if (announce) {
       (by?.net || this.net).send({ t: 'cp', i });
       this.toast(this.locals.length > 1 ? `${by.name}: ${this.cpLabel(i)} erreicht – gespeichert` : `${this.cpLabel(i)} erreicht – Fortschritt gespeichert`);
@@ -710,7 +894,43 @@ class Game {
     return { target: c, extra: Math.max(0, spread * 0.9 - 1) };
   }
 
+  // Kamerapose für einen Blickpunkt: Richtung aus yaw/pitch, Abstand per Kamera-Kollision.
+  // c hält den geglätteten Abstand (smooth) über die Frames.
+  pose(c, target, want, dt) {
+    const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+    const dir = [Math.sin(c.yaw) * cp, sp, Math.cos(c.yaw) * cp];
+    // Kamera-Kollision: Strahl vom Kopf zur Wunschposition gegen alle Boxen (inkl. Boden),
+    // jeweils um den Kamera-Radius vergrößert, damit auch die Near-Plane nicht in Wände ragt.
+    const dist = this.cameraRay(target, dir, want);
+    // Reinziehen sofort (sonst sieht man kurz durch den Boden), rauszoomen weich
+    if (c.smooth === undefined || dist < c.smooth) c.smooth = dist;
+    else c.smooth += (dist - c.smooth) * Math.min(1, dt * 4);
+    return {
+      pos: [target[0] + dir[0] * c.smooth, target[1] + dir[1] * c.smooth, target[2] + dir[2] * c.smooth],
+      look: [target[0], target[1], target[2]],
+    };
+  }
+
+  // Gemeinsame Kamera (ein Spieler, oder Splitscreen aus): Pose in view.camera.
+  // Splitscreen: liefert eine Ansicht je lokalem Spieler; bei drei Spielern zeigt das
+  // vierte Viertel das ganze Team.
   updateCamera(dt) {
+    if (this.split()) {
+      const views = this.locals.map((lp) => {
+        const p = lp.body.pos;
+        return { ...this.pose(lp.cam, [p[0], p[1] + 1.5, p[2]], lp.cam.dist, dt), focus: p };
+      });
+      if (views.length === 3) {
+        const f = this.cameraFocus();
+        this.overview = this.overview || { yaw: 0, pitch: 0.45, dist: 10, smooth: undefined };
+        // Übersicht dreht langsam mit Spieler 1 mit
+        let d = this.locals[0].cam.yaw - this.overview.yaw;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        this.overview.yaw += d * Math.min(1, dt * 0.8);
+        views.push({ ...this.pose(this.overview, f.target, Math.min(24, 10 + f.extra), dt), focus: this.locals[0].body.pos });
+      }
+      return views;
+    }
     const f = this.cameraFocus();
     let target = f.target;
     if (this.locals.length > 1) {
@@ -722,17 +942,27 @@ class Game {
     } else this.camFocus = null;
     this.camExtra = this.camExtra === undefined ? f.extra : this.camExtra + (f.extra - this.camExtra) * Math.min(1, dt * 3);
     const want = Math.min(24, this.camDist + this.camExtra);
-    const cp = Math.cos(this.camPitch), sp = Math.sin(this.camPitch);
-    const dir = [Math.sin(this.camYaw) * cp, sp, Math.cos(this.camYaw) * cp];
-    // Kamera-Kollision: Strahl vom Kopf zur Wunschposition gegen alle Boxen (inkl. Boden),
-    // jeweils um den Kamera-Radius vergrößert, damit auch die Near-Plane nicht in Wände ragt.
-    const dist = this.cameraRay(target, dir, want);
-    // Reinziehen sofort (sonst sieht man kurz durch den Boden), rauszoomen weich
-    if (this.smoothDist === undefined || dist < this.smoothDist) this.smoothDist = dist;
-    else this.smoothDist += (dist - this.smoothDist) * Math.min(1, dt * 4);
+    this.shared = this.shared || { smooth: undefined };
+    Object.assign(this.shared, { yaw: this.camYaw, pitch: this.camPitch });
+    const pose = this.pose(this.shared, target, want, dt);
     const cam = this.view.camera;
-    cam.position.set(target[0] + dir[0] * this.smoothDist, target[1] + dir[1] * this.smoothDist, target[2] + dir[2] * this.smoothDist);
-    cam.lookAt(target[0], target[1], target[2]);
+    cam.position.set(...pose.pos);
+    cam.lookAt(...pose.look);
+    return null;
+  }
+
+  // Namen der Spieler in ihren Bildschirmteilen und Trennlinien
+  updateSplitLabels(views) {
+    const el = $('split');
+    const key = views ? this.locals.map((l) => l.name + l.color).join('|') + views.length : '';
+    if (key === this.splitLabelKey) return;
+    this.splitLabelKey = key;
+    el.classList.toggle('hidden', !views);
+    if (!views) { el.innerHTML = ''; return; }
+    el.className = views.length === 2 ? 'split-2' : 'split-4';
+    const tags = this.locals.map((l) => `<span class="split-tag" style="--c:${l.color}">${esc(l.name)}</span>`);
+    if (views.length === 4 && this.locals.length === 3) tags.push('<span class="split-tag" style="--c:#fff">Team</span>');
+    el.innerHTML = tags.map((t) => `<div class="split-cell">${t}</div>`).join('');
   }
 
   cameraRay(o, dir, len) {
@@ -771,16 +1001,31 @@ class Game {
     $('hud-height').textContent = `${y.toFixed(1)} m`;
     const top = this.level.goal.min[1];
     $('hud-best').textContent = `Rekord ${this.best.toFixed(1)} m · Ziel ${top.toFixed(0)} m`;
-    $('hud-cp').textContent = `Zwischenstopp ${this.cp}/${this.level.checkpoints.length - 1} · Abschnitt ${si + 1}/${this.level.sections.length}`;
-    $('hud-timer').textContent = `Schichtzeit ${fmt(this.shiftTime())}`;
+    const nCp = this.level.checkpoints.length - 1;
+    $('hud-cp').textContent = `Zwischenstopp ${this.cpOf(this.p1)}/${nCp} · Abschnitt ${si + 1}/${this.level.sections.length}`;
+    if (this.mode === 'teams') {
+      const other = 1 - this.p1.team;
+      $('hud-cp').textContent += ` · ${TEAMS[other].short}: ${this.tcp[other]}/${nCp}`;
+    }
+    $('hud-timer').textContent = `${this.mode === 'teams' ? 'Rennzeit' : 'Schichtzeit'} ${fmt(this.shiftTime())}`;
     if (this.view.scene.fog) this.view.scene.fog.color.setHex(s.fog);
 
     const single = this.locals.length === 1;
-    const rows = this.locals.map((lp) => ({ name: single ? lp.name + ' (du)' : lp.name + ' 🎮', color: lp.color, y: lp.body.pos[1], slot: lp.slot }));
-    for (const r of this.remotes.values()) rows.push({ name: r.name, color: r.color, y: r.rpos[1], slot: r.slot });
+    const rows = this.locals.map((lp) => ({ name: single ? lp.name + ' (du)' : lp.name + ' 🎮', color: lp.color, y: lp.body.pos[1], slot: lp.slot, team: lp.team ?? 0, local: true }));
+    for (const r of this.remotes.values()) rows.push({ name: r.name, color: r.color, y: r.rpos[1], slot: r.slot, team: r.team ?? 0 });
     rows.sort((a, b) => a.slot - b.slot);
-    $('hud-players').innerHTML = rows.map((r) => `<div class="pl"><i style="background:${r.color}"></i>${esc(r.name)}<b>${Math.max(0, r.y).toFixed(0)} m</b></div>`).join('');
-    $('tension').classList.toggle('hidden', this.tension < 1.001);
+    const row = (r) => `<div class="pl"><i style="background:${r.color}"></i>${esc(r.name)}<b>${Math.max(0, r.y).toFixed(0)} m</b></div>`;
+    if (this.mode === 'teams') {
+      // Beide Teams mit ihrem höchsten Kletterer
+      $('hud-players').innerHTML = [0, 1].map((t) => {
+        const mine = rows.filter((r) => r.team === t);
+        const top = mine.length ? Math.max(0, ...mine.map((r) => r.y)) : 0;
+        const own = mine.some((r) => r.local);
+        return `<div class="team${own ? ' mine' : ''}" style="--team:${TEAMS[t].color}"><div class="team-head">${TEAMS[t].short}<b>${top.toFixed(0)} m</b></div>${mine.map(row).join('')}</div>`;
+      }).join('');
+    } else {
+      $('hud-players').innerHTML = rows.map(row).join('');
+    }
     $('brace').classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
   }
 
@@ -793,10 +1038,34 @@ class Game {
   }
 
   shiftTime() {
+    if (this.mode === 'teams' && this.race) {
+      if (this.race.winner !== null && this.race.winner !== undefined && this.race.time) return this.race.time;
+      return Math.max(0, Date.now() + (this.net.online ? this.net.offset : 0) - this.race.startedAt);
+    }
     return this.played + Math.max(0, Date.now() + (this.net.online ? this.net.offset : 0) - this.startedAt);
   }
 
+  // 2 gegen 2: das erste Team oben gewinnt – für alle ist das Rennen vorbei
+  showRaceFinish(m) {
+    if (this.race) { this.race.winner = m.team; this.race.time = m.time; }
+    const won = this.locals.some((l) => l.team === m.team);
+    const lost = this.locals.some((l) => l.team !== m.team);
+    this.finished = true;
+    audio.play(won ? 'finish' : 'leave');
+    this.setInputEnabled(false);
+    if (this.paused) { this.paused = false; menu.close(); }
+    document.exitPointerLock?.();
+    // Sofa-Duell (beide Teams an diesem Bildschirm): neutral
+    $('finish-logo').innerHTML = won && lost ? 'ZIEL<span>EINLAUF</span>' : won ? 'GE<span>WONNEN</span>' : 'ZWEITER<span> PLATZ</span>';
+    $('finish-text').textContent = `${TEAMS[m.team].name} (${(m.names || [m.name]).join(' & ')}) ist zuerst oben! Rennzeit: ${fmt(m.time)}`;
+    $('board').innerHTML = '';
+    $('again').textContent = 'Revanche (beide Teams zurück zum Start)';
+    $('finish').classList.remove('hidden');
+  }
+
   showFinish(name, time) {
+    $('finish-logo').innerHTML = 'ZUGE<span>STELLT</span>';
+    $('again').textContent = 'Neue Schicht (Fortschritt löschen, alle zum Start)';
     this.finished = true;
     audio.play('finish');
     this.setInputEnabled(false);

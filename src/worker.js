@@ -2,6 +2,7 @@
 // Der Worker liefert den gebauten Client aus (Assets) und leitet /ws?room=CODE
 // an genau ein Durable Object pro Raumcode weiter.
 import { DurableObject } from 'cloudflare:workers';
+import { hostOf, modeError, assignTeams, teamForNewcomer } from '../client/src/teams.js';
 
 const MAX_PLAYERS = 4;
 const COLORS = ['#ff7a1a', '#22c8e5', '#9be22a', '#ff4fa3'];
@@ -55,6 +56,18 @@ export class Room extends DurableObject {
     try { ws.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); } catch { /* Socket bereits zu */ }
   }
 
+  // Spielmodus des Raums: 'rope' (alle an einem Seil) oder 'teams' (2 gegen 2)
+  async modeState() {
+    const [mode, tcp, race] = await Promise.all([
+      this.ctx.storage.get('mode'), this.ctx.storage.get('tcp'), this.ctx.storage.get('race'),
+    ]);
+    return { mode: mode || 'rope', tcp: tcp || [0, 0], race: race || null };
+  }
+
+  publicPlayer(p) {
+    return { id: p.id, name: p.name, slot: p.slot, color: p.color, team: p.team ?? 0 };
+  }
+
   broadcast(msg, exceptWs) {
     const data = typeof msg === 'string' ? msg : JSON.stringify(msg);
     for (const p of this.players()) if (p.ws !== exceptWs) this.send(p.ws, data);
@@ -80,8 +93,12 @@ export class Room extends DurableObject {
         while (used.has(slot)) slot++;
         const name = String(m.name || 'Lagerist').replace(/[<>]/g, '').trim().slice(0, 16) || 'Lagerist';
         const id = crypto.randomUUID().slice(0, 8);
-        const info = { id, name, slot, color: COLORS[slot % COLORS.length] };
-        ws.serializeAttachment(info);
+        const ms = await this.modeState();
+        const team = ms.mode === 'teams' ? teamForNewcomer(others) : 0;
+        const info = { id, name, slot, color: COLORS[slot % COLORS.length], team };
+        // Gerätekennung: lokale Mitspieler am selben Bildschirm kommen ins selbe Team
+        const dev = String(m.dev || '').slice(0, 16);
+        ws.serializeAttachment({ ...info, dev });
 
         // Schichtzeit läuft nur, solange jemand im Raum ist, und summiert sich über Sitzungen
         let startedAt = await this.ctx.storage.get('startedAt');
@@ -101,10 +118,10 @@ export class Room extends DurableObject {
           played,
           cp,
           board,
-          players: others.map((p) => ({
-            id: p.id, name: p.name, slot: p.slot, color: p.color,
-            s: this.lastState.get(p.id) || null,
-          })),
+          mode: ms.mode,
+          tcp: ms.tcp,
+          race: ms.race,
+          players: others.map((p) => ({ ...this.publicPlayer(p), s: this.lastState.get(p.id) || null })),
         });
         this.broadcast({ t: 'join', player: info }, ws);
         return;
@@ -128,6 +145,16 @@ export class Room extends DurableObject {
         if (!me.id) return;
         const i = Math.floor(Number(m.i));
         if (!Number.isFinite(i) || i < 0 || i > 10000) return;
+        const ms = await this.modeState();
+        if (ms.mode === 'teams') {
+          // 2 gegen 2: jedes Team hat seinen eigenen Fortschritt
+          const team = me.team ?? 0;
+          if (i <= ms.tcp[team]) return;
+          ms.tcp[team] = i;
+          await this.ctx.storage.put('tcp', ms.tcp);
+          this.broadcast({ t: 'cp', i, name: me.name, team }, ws);
+          return;
+        }
         const cur = (await this.ctx.storage.get('cp')) || 0;
         if (i <= cur) return;
         await this.ctx.storage.put('cp', i);
@@ -136,10 +163,23 @@ export class Room extends DurableObject {
       }
       case 'warp':
         if (!me.id) return;
-        this.broadcast({ t: 'warp', name: me.name }, ws);
+        this.broadcast({ t: 'warp', name: me.name, team: me.team ?? 0 }, ws);
         return;
       case 'goal': {
         if (!me.id) return;
+        const ms = await this.modeState();
+        if (ms.mode === 'teams') {
+          // Rennen: das erste Team oben gewinnt, danach zählt nichts mehr
+          if (!ms.race || ms.race.winner !== null) return;
+          const team = me.team ?? 0;
+          const time = Date.now() - ms.race.startedAt;
+          ms.race.winner = team;
+          ms.race.time = time;
+          await this.ctx.storage.put('race', ms.race);
+          const names = this.players().filter((p) => (p.team ?? 0) === team).map((p) => p.name);
+          this.broadcast({ t: 'finish', id: me.id, name: me.name, time, team, names });
+          return;
+        }
         const startedAt = (await this.ctx.storage.get('startedAt')) || Date.now();
         const played = (await this.ctx.storage.get('played')) || 0;
         const time = played + Date.now() - startedAt;
@@ -154,9 +194,45 @@ export class Room extends DurableObject {
       }
       case 'restart': {
         if (!me.id) return;
+        const ms = await this.modeState();
+        if (ms.mode === 'teams') {
+          // Revanche: beide Teams wieder unten, neue Rennuhr
+          const race = { startedAt: Date.now(), winner: null };
+          await this.ctx.storage.put({ tcp: [0, 0], race });
+          this.broadcast({ t: 'restart', by: me.name, startedAt: race.startedAt, race });
+          return;
+        }
         const startedAt = Date.now();
         await this.ctx.storage.put({ startedAt, played: 0, cp: 0 });
         this.broadcast({ t: 'restart', by: me.name, startedAt });
+        return;
+      }
+      case 'mode': {
+        // Nur der Gastgeber stellt den Spielmodus ein (oder lost die Teams neu aus)
+        if (!me.id) return;
+        const all = this.players();
+        const host = hostOf(all);
+        if (!host || host.id !== me.id) { this.send(ws, { t: 'modeError', reason: 'Nur der Gastgeber kann den Spielmodus ändern' }); return; }
+        const mode = m.mode;
+        const err = modeError(mode, all.length);
+        if (err) { this.send(ws, { t: 'modeError', reason: err }); return; }
+        let race = null;
+        let teams = {};
+        if (mode === 'teams') {
+          teams = assignTeams(all, m.shuffle ? Math.random : null);
+          race = { startedAt: Date.now(), winner: null };
+          await this.ctx.storage.put({ mode, tcp: [0, 0], race });
+        } else {
+          for (const p of all) teams[p.id] = 0;
+          await this.ctx.storage.put('mode', mode);
+          await this.ctx.storage.delete(['tcp', 'race']);
+        }
+        for (const p of all) {
+          const { ws: sock, ...a } = p;
+          sock.serializeAttachment({ ...a, team: teams[p.id] });
+        }
+        const cp = (await this.ctx.storage.get('cp')) || 0;
+        this.broadcast({ t: 'mode', mode, teams, race, cp, by: me.name, shuffle: !!m.shuffle });
         return;
       }
     }
