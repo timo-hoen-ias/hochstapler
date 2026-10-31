@@ -14,6 +14,7 @@ import { updateFires, waterAt } from './elements.js';
 import { nearestFire } from './elements3d.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 import { MachineControl } from './machinectl.js';
+import { DebugConsole, flyStep } from './debug.js';
 
 // Wer tiefer als das auf eine Plattform fällt, zerplatzt (m)
 const SPLAT_DROP = 10;
@@ -188,6 +189,8 @@ class Game {
     });
 
     this.bindInput(local);
+    // Debug-Konsole: ^ oder F8 (Teleport, Freiflug, Gott-Modus)
+    this.debug = new DebugConsole(this);
     for (const e of local?.extra || []) this.addLocal(e.pad, e.name, false);
     this.world.update(this.net.time());
     requestAnimationFrame(() => this.frame());
@@ -569,7 +572,7 @@ class Game {
     $('click-hint').addEventListener('click', () => this.lock());
     addEventListener('keydown', (e) => {
       // Ohne Pointer-Lock (z. B. Tastatur am Tablet) öffnet Esc die Pause
-      if (e.key === 'Escape' && !document.pointerLockElement && !menu.isOpen()) this.pause();
+      if (e.key === 'Escape' && !document.pointerLockElement && !menu.isOpen() && !this.debug?.isOpen) this.pause();
       if (e.code === 'KeyM' && !e.repeat && e.target.tagName !== 'INPUT') {
         const muted = audio.toggleMute();
         if (!muted) audio.play('mute');
@@ -583,7 +586,7 @@ class Game {
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === canvas;
-      if (!locked && this.wasLocked && !this.paused) this.pause();
+      if (!locked && this.wasLocked && !this.paused && !this.debug?.isOpen) this.pause();
       if (locked) this.wasLocked = true;
       this.updateClickHint();
     });
@@ -668,7 +671,7 @@ class Game {
 
   updateClickHint() {
     const kbm = this.input?.device === 'kbm' && !settings.touchEnabled();
-    const need = kbm && !document.pointerLockElement && !this.paused && !this.finishOpen();
+    const need = kbm && !document.pointerLockElement && !this.paused && !this.finishOpen() && !this.debug?.isOpen;
     $('click-hint').classList.toggle('hidden', !need);
     $('hints').classList.toggle('hidden', !settings.get().hints || settings.touchEnabled());
     $('crosshair').classList.toggle('hidden', settings.touchEnabled() || this.locals.length > 1);
@@ -747,6 +750,8 @@ class Game {
         const b = lp.body;
         const vyBefore = b.vel[1];
         if (lp.dead > 0) return; // aufgeklatscht: liegt bis zum Neustart still
+        // Debug-Freiflug: ohne Kollision und Schwerkraft
+        if (lp.fly) { flyStep(b, inputs[k], step, this.debug.speed); lp.jump = false; return; }
         // Am Bedienplatz einer Maschine: festgemacht, die Eingaben steuern die Maschine
         if (this.mc.pin(lp, step)) { lp.jump = false; if (b.zapped) audio.play('respawn'); return; }
         this.world.mates = this.mc.mates(lp);
@@ -773,32 +778,36 @@ class Game {
       // Zwischenstopp erreicht?
       const g0 = b.ground;
       const mine = this.cpOf(lp);
-      if (b.grounded && g0 && g0.cp !== undefined && g0.cp > mine) this.setCheckpoint(g0.cp, true, false, lp);
+      if (b.grounded && g0 && g0.cp !== undefined && g0.cp > mine && !lp.fly) this.setCheckpoint(g0.cp, true, false, lp);
       // Abgestürzt: deutlich unter den letzten Zwischenstopp gefallen oder aus der Welt
       const p = b.pos;
       const cpY = this.level.checkpoints[this.cpOf(lp)].pos[1];
       // Wer fällt, landet weiter unten und klettert von dort wieder hoch. Zurück zum
       // Zwischenstopp geht es erst unten auf dem Hof (oder aus der Welt heraus).
       const onYard = b.grounded && b.ground && b.ground.big && cpY > 2;
+      // Debug: im Freiflug passiert nichts, im Gott-Modus nur aus der Welt heraus
+      const god = this.debug?.god;
       // Unten auf dem Hof aufgeschlagen: erst aufklatschen, kurz danach zurück
       if (lp.dead > 0) {
         lp.dead -= dt;
         evs[k].landed = false;
         if (lp.dead <= 0) this.crashRespawn(lp);
-      } else if (onYard && this.splatStyle() !== 'aus') {
+      } else if (lp.fly) {
+        // Freiflug: kein Absturz
+      } else if (onYard && !god && this.splatStyle() !== 'aus') {
         this.splat(lp);
         evs[k].landed = false;
-      } else if (b.grounded && b.ground && (lp.airTop ?? p[1]) - p[1] > SPLAT_DROP && this.splatStyle() !== 'aus') {
+      } else if (b.grounded && b.ground && !god && (lp.airTop ?? p[1]) - p[1] > SPLAT_DROP && this.splatStyle() !== 'aus') {
         // Aus zu großer Höhe auf eine Plattform gefallen: auch dort zerplatzen
         const g = b.ground;
         this.splat(lp, g.big ? null : [g.min[0], g.max[0], g.min[2], g.max[2]]);
         evs[k].landed = false;
-      } else if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
+      } else if ((onYard && !god) || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
         this.crashRespawn(lp);
         evs[k].landed = false;
       }
       // Höchster Punkt seit dem letzten Halt (Boden, Kante, Haken, Leiter) für die Fallhöhe
-      if (b.grounded || b.hang || b.hook || b.ladder || lp.dead > 0) lp.airTop = b.pos[1];
+      if (b.grounded || b.hang || b.hook || b.ladder || lp.dead > 0 || lp.fly) lp.airTop = b.pos[1];
       else lp.airTop = Math.max(lp.airTop ?? b.pos[1], b.pos[1]);
       // Weitere lokale Spieler: Sprünge/Landungen räumlich hörbar
       if (k > 0) {
@@ -843,7 +852,7 @@ class Game {
     const pairs = [];
     for (const chain of this.chains()) {
       for (let i = 1; i < chain.length; i++) {
-        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.remote?.hidden > 0)) continue;
+        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0)) continue;
         pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
       }
     }
@@ -952,7 +961,7 @@ class Game {
     const L = PHYS.rope;
     for (const chain of this.chains()) {
       for (let i = 1; i < chain.length; i++) {
-        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.remote?.hidden > 0)) continue;
+        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0)) continue;
         const a = this.posOf(chain[i - 1]), b = this.posOf(chain[i]);
         const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         const len = Math.hypot(d[0], d[1], d[2]);
@@ -998,13 +1007,13 @@ class Game {
   ropeStep(dt) {
     let total = 0;
     for (const chain of this.chains()) chain.forEach((c, idx) => {
-      if (!c.local || c.local.dead > 0) return;
+      if (!c.local || c.local.dead > 0 || c.local.fly) return;
       const body = c.local.body;
       let tension = 0;
       for (const j of [idx - 1, idx + 1]) {
         if (j < 0 || j >= chain.length) continue;
         const n = chain[j];
-        if (n.local?.dead > 0 || n.remote?.hidden > 0) continue; // aufgeklatscht: Seil ist ab
+        if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0) continue; // aufgeklatscht oder Freiflug: Seil ist ab
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
         if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt));
         else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt));

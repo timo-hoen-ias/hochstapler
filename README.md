@@ -73,6 +73,27 @@ denselben Turm. Insgesamt ~1370 Kletterpunkte. Grob geschätzt braucht eine Grup
 mit Abstürzen und Absprachen 15–30 Sekunden pro Kletterpunkt, also etwa 6–11
 Stunden – das ist eine Schätzung, kein gemessener Wert.
 
+## Debug-Konsole (Level testen)
+
+`^` (Taste links neben der 1, auf US-Tastaturen `` ` ``) oder `F8` öffnet die Konsole, `F9` schaltet den Freiflug direkt um.
+Pfeil hoch/runter blättert durch frühere Befehle, `Esc` schließt.
+
+| Befehl | Wirkung |
+|---|---|
+| `tp <n>` | zu Zwischenstopp n (wird als erreicht gesetzt) |
+| `tp akt <n>` | an den Anfang von Akt 1–8 |
+| `tp abschnitt <n>` | an den Anfang von Abschnitt n (Nummer wie im HUD) |
+| `tp ziel` | aufs Ziel-Dach |
+| `tp <x> <y> <z>` | zu Koordinaten, `~` = relativ, z. B. `tp ~ ~10 ~` |
+| `hoch <m>` | m Meter nach oben (negativ = runter) |
+| `flug` | Freiflug/Noclip: Leertaste hoch, Shift runter, keine Kollision, Seil ab |
+| `tempo <m/s>` | Fluggeschwindigkeit (Standard 12) |
+| `gott` | kein Absturz und kein Aufklatschen (nur aus der Welt fallen setzt zurück) |
+| `cp <n>` | Zwischenstopp setzen, ohne zu springen |
+| `pos`, `akte`, `zs [akt]` | Position, Akt-Übersicht, Zwischenstopps auflisten |
+
+Die Konsole wirkt nur auf die Spieler am eigenen Gerät. Code: `client/src/debug.js`.
+
 ## Zwischenstopps
 
 Grüne Plattformen mit Lampe sind Zwischenstopps – am Anfang und in der Mitte jedes
