@@ -489,24 +489,42 @@ class Game {
     const target = [p[0], p[1] + 1.5, p[2]];
     const cp = Math.cos(this.camPitch), sp = Math.sin(this.camPitch);
     const dir = [Math.sin(this.camYaw) * cp, sp, Math.cos(this.camYaw) * cp];
-    // Kamera nicht in Kisten schieben
-    let dist = this.camDist;
-    for (let d = 0.6; d < this.camDist; d += 0.25) {
-      const q = [target[0] + dir[0] * d, target[1] + dir[1] * d, target[2] + dir[2] * d];
-      if (this.pointInSolid(q)) { dist = Math.max(0.6, d - 0.3); break; }
-    }
-    this.smoothDist = this.smoothDist === undefined ? dist : this.smoothDist + (dist - this.smoothDist) * Math.min(1, dt * (dist < this.smoothDist ? 20 : 4));
+    // Kamera-Kollision: Strahl vom Kopf zur Wunschposition gegen alle Boxen (inkl. Boden),
+    // jeweils um den Kamera-Radius vergrößert, damit auch die Near-Plane nicht in Wände ragt.
+    const dist = this.cameraRay(target, dir, this.camDist);
+    // Reinziehen sofort (sonst sieht man kurz durch den Boden), rauszoomen weich
+    if (this.smoothDist === undefined || dist < this.smoothDist) this.smoothDist = dist;
+    else this.smoothDist += (dist - this.smoothDist) * Math.min(1, dt * 4);
     const cam = this.view.camera;
     cam.position.set(target[0] + dir[0] * this.smoothDist, target[1] + dir[1] * this.smoothDist, target[2] + dir[2] * this.smoothDist);
     cam.lookAt(target[0], target[1], target[2]);
   }
 
-  pointInSolid(q) {
-    for (const b of this.world.near(q, 1, 1)) {
-      if (b.big || b.hidden) continue;
-      if (q[0] > b.min[0] && q[0] < b.max[0] && q[1] > b.min[1] && q[1] < b.max[1] && q[2] > b.min[2] && q[2] < b.max[2]) return true;
+  cameraRay(o, dir, len) {
+    const R = 0.3;
+    const mid = [o[0] + dir[0] * len / 2, o[1] + dir[1] * len / 2, o[2] + dir[2] * len / 2];
+    let hit = len;
+    for (const b of this.world.near(mid, len / 2 + 1, len / 2 + 1)) {
+      if (b.hidden) continue;
+      let tmin = 0, tmax = hit, inside = true;
+      for (let i = 0; i < 3; i++) {
+        const lo = b.min[i] - R, hi = b.max[i] + R;
+        if (o[i] < lo || o[i] > hi) inside = false;
+        if (Math.abs(dir[i]) < 1e-6) {
+          if (o[i] < lo || o[i] > hi) { tmin = Infinity; break; }
+          continue;
+        }
+        let t1 = (lo - o[i]) / dir[i], t2 = (hi - o[i]) / dir[i];
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        if (t1 > tmin) tmin = t1;
+        if (t2 < tmax) tmax = t2;
+        if (tmin > tmax) break;
+      }
+      // Kopf steht dicht an einer Wand (innerhalb des Radius): diese Box ignorieren
+      if (inside) continue;
+      if (tmin <= tmax && tmin < hit) hit = tmin;
     }
-    return false;
+    return Math.max(0.4, hit - 0.05);
   }
 
   updateHud() {
