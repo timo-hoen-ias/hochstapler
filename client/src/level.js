@@ -20,7 +20,7 @@ const HANDMADE = [
 export const GENERATED_SECTIONS = 42;
 // Akt 1 zieht weit nach links hinaus – der Start liegt deshalb rechts im Hof
 const START_X = 22;
-const SEED = 0x5eed24; // Zufallsfolge der Akte 2–7 (nach Einbau der Rätsel-Arenen neu gewählt, damit alle Übergänge schaffbar sind)
+const SEED = 0x5eed26; // Zufallsfolge der Akte 2–7 (nach Einbau der Rätsel-Arenen neu gewählt, damit alle Übergänge schaffbar sind)
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.LVLDEBUG;
 
 // Bewegungsprofil: halten – fahren – halten – zurückfahren.
@@ -31,13 +31,21 @@ export function moverProgress(u) {
   if (u < 0.7) return 1;
   return 1 - smooth((u - 0.7) / 0.3);
 }
+// Rammbock/Presse: lange in Ruhe, dann schnell ausfahren, kurz halten, langsam zurück.
+export function punchProgress(u) {
+  if (u < 0.5) return 0;
+  if (u < 0.6) return smooth((u - 0.5) / 0.1);
+  if (u < 0.72) return 1;
+  return 1 - smooth((u - 0.72) / 0.28);
+}
 export function phaseOf(period, phase, t) {
   return (((t / period) + phase) % 1 + 1) % 1;
 }
 
 // Versatz eines beweglichen Elements zum Zeitpunkt t (Sekunden, Serverzeit).
 export function moverOffset(m, t, out) {
-  const s = moverProgress(phaseOf(m.period, m.phase, t));
+  const u = phaseOf(m.period, m.phase, t);
+  const s = m.profile === 'punch' ? punchProgress(u) : moverProgress(u);
   out[0] = m.delta[0] * s;
   out[1] = m.delta[1] * s - (m.kind === 'swing' ? m.dip * Math.sin(Math.PI * s) : 0);
   out[2] = m.delta[2] * s;
@@ -252,7 +260,10 @@ export function buildLevel(opts = {}) {
     const base = { min: [cx - sx / 2, top - h, cz - sz / 2], max: [cx + sx / 2, top, cz + sz / 2] };
     let delta = [0, 0, 0];
     if (kind === 'lift') delta = [0, opts.range, 0];
-    else {
+    else if (opts.side) { // quer zur Laufrichtung (Schiebebalken)
+      const [rx, rz] = dirVec('r');
+      delta = [rx * opts.dist, 0, rz * opts.dist];
+    } else {
       const [dx, dz] = dirVec(dir);
       delta = [dx * opts.dist, 0, dz * opts.dist];
     }
@@ -268,16 +279,29 @@ export function buildLevel(opts = {}) {
   function mover(kind, dir, gap, a, l, opts) {
     const c = moverCandidate(kind, dir, gap, a, l, opts);
     const m = {
-      kind, base: c.base, delta: c.delta, period: opts.period, phase: (movers.length * 0.37) % 1,
+      kind, base: c.base, delta: c.delta, period: opts.period, phase: opts.phase ?? (movers.length * 0.37) % 1,
       dip: c.dip, mat: opts.mat || (kind === 'swing' ? 'crate' : 'lift'), sec,
       side: dirVec('r'),
     };
+    if (opts.side) m.sidestep = true;
     movers.push(m);
     solids.push(c.sweep);
     clears.push(...clearVolumes(c.sweep, prev));
     if (opts.model) m.model = opts.model;
     path.push({ box: c.base, kind, mover: m, how: opts.how });
-    prev = c.end;
+    prev = opts.side ? c.base : c.end; // Schiebebalken: weiter ab der Ruhelage
+    return m;
+  }
+
+  // Rammbock oder Presse: bewegliche Box ohne Kletterpunkt, die Spieler wegstößt.
+  // min/max = Ruhelage, delta = Hub, o: { period, phase, mat, press }
+  function pusher(min, max, delta, o = {}) {
+    const m = {
+      kind: o.press ? 'press' : 'ram', base: { min, max }, delta, period: o.period, phase: o.phase ?? 0,
+      dip: 0, mat: o.mat || 'lift', sec, side: dirVec('r'), ram: true, profile: 'punch',
+    };
+    movers.push(m);
+    solids.push({ min: min.map((v, i) => Math.min(v, v + delta[i])), max: max.map((v, i) => Math.max(v, v + delta[i])) });
     return m;
   }
 
@@ -636,7 +660,7 @@ export function buildLevel(opts = {}) {
   if (generated > 0) {
     buildActs({
       queueArena, tryArenas,
-      section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint, hazard, plate, gate,
+      section, step, mover, pusher, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint, hazard, plate, gate,
       face, dirVec, snapshot, rollback, pieceOk, solid, special, fanZone, supports, addPath, markBlink, setPrev, dropLastPath, tagPath,
       water, extinguisher,
       ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),

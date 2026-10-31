@@ -21,7 +21,7 @@ const gapXZ = (a, b) => {
 };
 
 const endBox = (p) => {
-  if (!p.mover) return p.box;
+  if (!p.mover || p.mover.sidestep) return p.box; // Schiebebalken: im Gleichtakt in Ruhelage
   const d = p.mover.delta;
   return { min: p.box.min.map((v, i) => v + d[i]), max: p.box.max.map((v, i) => v + d[i]) };
 };

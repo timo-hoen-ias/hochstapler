@@ -444,7 +444,7 @@ export class Renderer {
       const local = (min, max) => boxGeo(
         [min[0] - b.min[0], min[1] - b.min[1], min[2] - b.min[2]],
         [max[0] - b.min[0], max[1] - b.min[1], max[2] - b.min[2]], 1);
-      const mat = m.mat === 'crate' ? this.mats.crate : m.mat === 'wagon' ? this.mats.wagon : this.mats.lift;
+      const mat = m.mat === 'crate' ? this.mats.crate : m.mat === 'wagon' ? this.mats.wagon : m.mat === 'beam' ? this.mats.beam : this.mats.lift;
       const body = new THREE.Mesh(local(b.min, b.max), mat);
       body.castShadow = body.receiveShadow = true;
       g.add(body);
@@ -493,6 +493,33 @@ export class Renderer {
         this.addDecorBox(
           [Math.min(mx - (sz ? 0.8 : 0.1), mx + (sz ? 0.8 : 0.1)), top - 0.15, Math.min(mz - (sx ? 0.8 : 0.1), mz + (sx ? 0.8 : 0.1))],
           [Math.max(mx - (sz ? 0.8 : 0.1), mx + (sz ? 0.8 : 0.1)), top, Math.max(mz - (sx ? 0.8 : 0.1), mz + (sx ? 0.8 : 0.1))], yellow);
+      }
+      if (m.ram) {
+        // Kolbenstange hinter dem Rammbock (fährt mit) und Zylinder in Ruhelage dahinter
+        const d = m.delta, len = Math.hypot(d[0], d[1], d[2]);
+        const u = d.map((v) => -v / len); // vom Stoß weg
+        const sx = b.max[0] - b.min[0], sy = b.max[1] - b.min[1], sz = b.max[2] - b.min[2];
+        const c = [sx / 2, sy / 2, sz / 2];
+        const half = [sx / 2, sy / 2, sz / 2];
+        const r = 0.13;
+        const rodMin = [], rodMax = [], cylMin = [], cylMax = [];
+        for (let i = 0; i < 3; i++) {
+          if (u[i]) {
+            const face = c[i] + u[i] * half[i];
+            const far = face + u[i] * (len + 0.4);
+            rodMin[i] = Math.min(face, far); rodMax[i] = Math.max(face, far);
+            const c0 = face + u[i] * (len + 0.05), c1 = face + u[i] * (len + 1.0);
+            cylMin[i] = b.min[i] + Math.min(c0, c1); cylMax[i] = b.min[i] + Math.max(c0, c1);
+          } else {
+            rodMin[i] = c[i] - r; rodMax[i] = c[i] + r;
+            const w = Math.min(half[i], 0.45);
+            cylMin[i] = b.min[i] + c[i] - w; cylMax[i] = b.min[i] + c[i] + w;
+          }
+        }
+        const rod = new THREE.Mesh(boxGeo(rodMin, rodMax, 1), this.mm.machine);
+        rod.castShadow = true;
+        g.add(rod);
+        this.addDecorBox(cylMin, cylMax, this.mm.machine);
       }
       if (m.kind === 'swing') {
         // Kranseil: Linie vom Ausleger zum Haken
