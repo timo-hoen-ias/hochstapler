@@ -128,7 +128,7 @@ export class Room extends DurableObject {
       }
       case 's': {
         if (!me.id) return;
-        const s = { p: m.p, v: m.v, y: m.y, g: m.g, b: m.b, a: typeof m.a === 'number' ? m.a & 15 : undefined };
+        const s = { p: m.p, v: m.v, y: m.y, g: m.g, b: m.b, a: typeof m.a === 'number' ? m.a & 127 : undefined };
         this.lastState.set(me.id, s);
         this.broadcast({ t: 's', id: me.id, ...s }, ws);
         return;

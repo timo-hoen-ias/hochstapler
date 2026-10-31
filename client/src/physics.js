@@ -1,5 +1,6 @@
 // Einfache, deterministische Kletter-Physik mit achsenparallelen Boxen.
 import { moverOffset, blinkState } from './level.js';
+import { EL, initElements, updateWaters, preStep, stepSwim, fireProof } from './elements.js';
 
 export const PHYS = {
   gravity: 26,
@@ -82,6 +83,7 @@ export class Colliders {
     this.plates = level.plates || [];
     for (const pl of this.plates) { pl.down = false; pl.hold = 0; pl.active = false; }
     this.gates = level.statics.filter((b) => b.gate);
+    initElements(this, level); // Wasser, Feuer, Feuerlöscher (elements.js)
     this.forceOpen = false; // Simulation: alle Rätsel gelöst
     this.big = level.statics.filter((s) => s.big);
     this.all = [...this.statics, ...this.moverBoxes];
@@ -140,6 +142,7 @@ export class Colliders {
       moverOffset(h.motion, t, this.tmp);
       for (let i = 0; i < 3; i++) h.cur[i] = h.pivot[i] + this.tmp[i];
     }
+    updateWaters(this, t);
     this.t = t;
   }
 
@@ -411,6 +414,7 @@ function stepLadder(body, input, cols, dt) {
 // Laser und Stacheln: Stromschlag mit Rückstoß, Griffe lösen sich – man fällt
 function checkHazards(body, world, dt) {
   body.zapped = null;
+  body.steam = false;
   if (body.hurt > 0) { body.hurt -= dt; return; }
   const p = body.pos, h = PHYS.half;
   for (const z of world.hazards) {
@@ -418,6 +422,7 @@ function checkHazards(body, world, dt) {
     const b = z.cur;
     if (p[0] + h[0] < b.min[0] || p[0] - h[0] > b.max[0] || p[2] + h[2] < b.min[2] || p[2] - h[2] > b.max[2]) continue;
     if (p[1] + 1.8 < b.min[1] || p[1] > b.max[1]) continue;
+    if (z.kind === 'fire' && fireProof(body, dt)) continue; // nass: zischt nur
     const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2;
     // weg von der Gefahr, quer zur dünnen Seite eines Lasers
     let dx = p[0] - cx, dz = p[2] - cz;
@@ -434,6 +439,27 @@ function checkHazards(body, world, dt) {
   }
 }
 
+// Kante greifen (auch aus dem Wasser): gegen eine Wand, deren Oberkante in Griffhöhe liegt
+function grabLedge(body, input, world, hx, hz) {
+  if (body.gripCool > 0 || body.vel[1] >= 2) return;
+  for (const [hit, ax] of [[hx, 0], [hz, 2]]) {
+    if (!hit || hit.mover || hit.ramp || hit.round || hit.blink || hit.nogrip) continue;
+    const rel = hit.max[1] - body.pos[1];
+    if (rel < PHYS.ledgeMin || rel > PHYS.ledgeMax) continue;
+    const s = (hit.min[ax] + hit.max[ax]) / 2 > body.pos[ax] ? 1 : -1;
+    const n = ax === 0 ? [s, 0] : [0, s];
+    if (input.x * n[0] + input.z * n[1] < 0.3) continue;
+    const up = [body.pos[0] + n[0] * 0.55, hit.max[1] + EPS, body.pos[2] + n[1] * 0.55];
+    if (!freeAt(up, world.near(up, 2))) continue;
+    body.hang = { box: hit, n, top: hit.max[1] };
+    body.pos[1] = hit.max[1] - PHYS.reach;
+    body.vel[0] = body.vel[1] = body.vel[2] = 0;
+    body.yaw = Math.atan2(n[0], n[1]);
+    body.jumpBuf = 0;
+    break;
+  }
+}
+
 export function stepBody(body, input, world, dt) {
   const cols = world.near(body.pos, 3);
   body.jumped = false;
@@ -442,6 +468,7 @@ export function stepBody(body, input, world, dt) {
   body.gripCool = Math.max(0, (body.gripCool || 0) - dt);
   if (input.jump) body.jumpBuf = PHYS.jumpBuffer;
   if (world.hazards.length) checkHazards(body, world, dt);
+  const water = preStep(body, world, dt);
 
   // Festhalten an Kante, Haken oder Leiter
   if (body.hang || body.hook || body.ladder) {
@@ -452,6 +479,14 @@ export function stepBody(body, input, world, dt) {
     body.jumpBuf = Math.max(0, body.jumpBuf - dt);
     body.justLanded = body.climbed;
     body.inFan = false;
+    return;
+  }
+
+  // Im Wasser: schwimmen und tauchen (elements.js)
+  if (water) {
+    stepSwim(body, input, world, cols, dt, water, { moveAxis, grabLedge });
+    body.jumpBuf = Math.max(0, body.jumpBuf - dt);
+    depenetrate(body, cols);
     return;
   }
 
@@ -488,6 +523,8 @@ export function stepBody(body, input, world, dt) {
     wantX += wind.push[0] * f; wantZ += wind.push[2] * f;
     windy = body.inWind > 0.3;
   }
+  // Durchs Wasser waten bremst
+  if (body.wade > EL.wade) { wantX *= 0.6; wantZ *= 0.6; }
   // In der Luft Schwung behalten (Rutsche, Haken, Luftpolster): nur die Richtung lenken
   const hs = Math.hypot(body.vel[0], body.vel[2]);
   if (!body.grounded && hs > PHYS.speed && (input.x || input.z)) {
@@ -578,24 +615,7 @@ export function stepBody(body, input, world, dt) {
   }
 
   // Kante greifen: in der Luft gegen eine Wand, deren Oberkante in Griffhöhe liegt
-  if (!body.grounded && body.gripCool <= 0 && body.vel[1] < 2) {
-    for (const [hit, ax] of [[hx, 0], [hz, 2]]) {
-      if (!hit || hit.mover || hit.ramp || hit.round || hit.blink || hit.nogrip) continue;
-      const rel = hit.max[1] - body.pos[1];
-      if (rel < PHYS.ledgeMin || rel > PHYS.ledgeMax) continue;
-      const s = (hit.min[ax] + hit.max[ax]) / 2 > body.pos[ax] ? 1 : -1;
-      const n = ax === 0 ? [s, 0] : [0, s];
-      if (input.x * n[0] + input.z * n[1] < 0.3) continue;
-      const up = [body.pos[0] + n[0] * 0.55, hit.max[1] + EPS, body.pos[2] + n[1] * 0.55];
-      if (!freeAt(up, world.near(up, 2))) continue;
-      body.hang = { box: hit, n, top: hit.max[1] };
-      body.pos[1] = hit.max[1] - PHYS.reach;
-      body.vel[0] = body.vel[1] = body.vel[2] = 0;
-      body.yaw = Math.atan2(n[0], n[1]);
-      body.jumpBuf = 0;
-      break;
-    }
-  }
+  if (!body.grounded) grabLedge(body, input, world, hx, hz);
 
   // Kranhaken greifen. Im Sprung lenkt eine sanfte Hilfe zum nahen Haken,
   // damit man ihn nicht knapp verfehlt; gegriffen wird an Haken und Kette.
