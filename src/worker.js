@@ -136,6 +136,12 @@ export class Room extends DurableObject {
       case 'ping':
         this.send(ws, { t: 'pong', c: m.c, s: Date.now() });
         return;
+      case 'splat': {
+        // Aufklatschen beim Absturz: nur weiterreichen
+        if (!me.id || !Array.isArray(m.p) || m.p.length !== 3 || !m.p.every(Number.isFinite)) return;
+        this.broadcast({ t: 'splat', id: me.id, p: m.p }, ws);
+        return;
+      }
       case 'emote':
         if (!me.id) return;
         this.broadcast({ t: 'emote', id: me.id, e: String(m.e || '').slice(0, 24) }, ws);

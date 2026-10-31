@@ -10,6 +10,7 @@ import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
 import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 import { Rig } from './anim.js';
+import { Splats } from './splat.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -76,6 +77,7 @@ export class Renderer {
     this.buildCheckpoints();
 
     this.avatars = new Map();
+    this.splats = new Splats(this.scene);
     this.ropes = [];
     this.shake = 0;
     this.applyQuality();
@@ -701,7 +703,27 @@ export class Renderer {
     if (!av) return null;
     const ev = av.rig.update(st, dt);
     av.tag.visible = !isLocal;
+    // Aufklatschen: kurz platt drücken, dann zerplatzt die Figur
+    if (av.splat) {
+      const sp = av.splat;
+      sp.t += dt;
+      const u = Math.min(1, sp.t / 0.09);
+      av.g.scale.set(1 + 0.7 * u, 1 - 0.85 * u, 1 + 0.7 * u);
+      if (sp.t >= 0.09 && !sp.done) {
+        sp.done = true;
+        this.splats.spawn(sp.pos, av.color, sp.style, QUALITY[settings.get().quality] === QUALITY.low);
+      }
+      if (!st.hidden && sp.t > 0.3) { av.splat = null; av.g.scale.set(1, 1, 1); }
+    }
+    av.g.visible = !st.hidden || !!(av.splat && !av.splat.done);
     return ev;
+  }
+
+  // Figur klatscht am Fußpunkt pos auf (style: 'blut' | 'farbe')
+  splat(id, pos, style) {
+    const av = this.avatars.get(id);
+    if (av) av.splat = { t: 0, pos: [...pos], style, done: false };
+    else this.splats.spawn(pos, '#ff7a1a', style);
   }
 
   // ───────── Seile ─────────
@@ -762,6 +784,7 @@ export class Renderer {
       if (sp.axis === 0) sp.g.rotation.x -= sp.w * dt; else sp.g.rotation.z += sp.w * dt;
     }
     updateHooks(this.hookLive, this.locals);
+    this.splats.update(dt);
     updatePuzzles(this.puzzles, dt);
     for (const w of this.windFx) {
       const f = colliders.gust(w.z);
