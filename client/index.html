@@ -104,10 +104,10 @@
       <div class="card ticket">
         <div class="ticket-head"><span>LIEFERSCHEIN</span><span class="ticket-no">Nr. <b id="ticket-room">----</b></span></div>
         <p id="invite" class="invite hidden"></p>
-        <label>Dein Name <span class="pad-tip">Ⓐ Bildschirmtastatur</span>
+        <label>Dein Name <span class="pad-tip"><i data-xb="A"></i> Bildschirmtastatur</span>
           <input id="name" maxlength="16" placeholder="z. B. Timo" autocomplete="off" enterkeyhint="go" />
         </label>
-        <label>Raumcode <span class="pad-tip">Ⓐ Tastatur · Neu = Zufallscode</span>
+        <label>Raumcode <span class="pad-tip"><i data-xb="A"></i> Tastatur · Neu = Zufallscode</span>
           <div class="row">
             <input id="room" maxlength="12" placeholder="ABCD" autocomplete="off" autocapitalize="characters" enterkeyhint="go" />
             <button id="newroom" class="ghost" type="button">Neu</button>
@@ -129,7 +129,7 @@
       <button id="local-offline" class="primary" type="button">Losklettern (nur dieses Gerät)</button>
       <button id="local-online" class="ghost wide" type="button">Online im Raum</button>
       <button class="link" type="button" data-act="back">Zurück</button>
-      <p class="small">Controller: <kbd>A</kbd> mitmachen · <kbd>B</kbd> aussteigen · <kbd>Start</kbd> losklettern · <kbd>Y</kbd> online. Online hängen sich eure lokalen Spieler zu den Freunden im Raum (zusammen max. 4). Auch mitten im Spiel kann ein neuer Controller mit <kbd>A</kbd> einsteigen.</p>
+      <p class="small">Controller: <i data-xb="A"></i> mitmachen · <i data-xb="B"></i> aussteigen · <i data-xb="Menu"></i> losklettern · <i data-xb="Y"></i> online. Online hängen sich eure lokalen Spieler zu den Freunden im Raum (zusammen max. 4). Auch mitten im Spiel kann ein neuer Controller mit <i data-xb="A"></i> einsteigen.</p>
     </section>
 
     <section class="card screen hidden" data-screen="pause">
@@ -174,15 +174,16 @@
         </div>
         <div class="ctl">
           <h3>Controller</h3>
-          <div><kbd>L-Stick</kbd> <span>laufen</span></div>
-          <div><kbd>R-Stick</kbd> <span>Kamera</span></div>
-          <div><kbd>A</kbd> / <kbd>✕</kbd> <span>springen</span></div>
-          <div><kbd>B</kbd> / <kbd>RB</kbd> / <kbd>RT</kbd> <span>festhalten</span></div>
-          <div><kbd>X</kbd> <kbd>Y</kbd> <kbd>LB</kbd> <span>Zurufe</span></div>
-          <div><kbd>Steuerkreuz ↑↓</kbd> <span>Zoom</span></div>
-          <div><kbd>Select</kbd> / <kbd>View</kbd> <span>zurück zum Zwischenstopp</span></div>
-          <div><kbd>Start</kbd> <span>Pause</span></div>
-          <div><kbd>A</kbd> an freiem Controller <span>lokal einsteigen</span></div>
+          <div><i data-xb="LS"></i> <span>laufen</span></div>
+          <div><i data-xb="RS"></i> <span>Kamera</span></div>
+          <div><i data-xb="A"></i> <span>springen</span></div>
+          <div><i data-xb="RT"></i> / <i data-xb="RB"></i> / <i data-xb="B"></i> <span>festhalten</span></div>
+          <div><i data-xb="X"></i> <span>benutzen (Maschinen)</span></div>
+          <div><i data-xb="DLeft Y LB"></i> <span>Zurufe</span></div>
+          <div><i data-xb="DUpDown"></i> <span>Zoom</span></div>
+          <div><i data-xb="View"></i> <span>zurück zum Zwischenstopp</span></div>
+          <div><i data-xb="Menu"></i> <span>Pause</span></div>
+          <div><i data-xb="A"></i> an freiem Controller <span>lokal einsteigen</span></div>
         </div>
         <div class="ctl">
           <h3>Touch</h3>
@@ -218,7 +219,7 @@
     <div id="crosshair"></div>
     <div id="hints">
       <div class="h-kbm"><kbd>Leertaste</kbd> springen · <kbd>Shift</kbd> festhalten · <kbd>G</kbd> benutzen · <kbd>1-3</kbd> Zurufe · <kbd>T</kbd> Reset · <kbd>Esc</kbd> Pause</div>
-      <div class="h-pad"><kbd>A</kbd> springen · <kbd>RT</kbd> festhalten · <kbd>X</kbd> benutzen · <kbd>◀ Y LB</kbd> Zurufe · <kbd>Select</kbd> Reset · <kbd>Start</kbd> Pause</div>
+      <div class="h-pad"><i data-xb="A"></i> springen · <i data-xb="RT"></i> festhalten · <i data-xb="X"></i> benutzen · <i data-xb="DLeft Y LB"></i> Zurufe · <i data-xb="View"></i> Reset · <i data-xb="Menu"></i> Pause</div>
     </div>
     <div id="click-hint" class="hidden">Klicken, um die Maus zu fangen</div>
   </div>

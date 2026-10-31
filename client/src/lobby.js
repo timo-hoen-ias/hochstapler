@@ -1,6 +1,7 @@
 // Lobby für lokalen Koop: Jeder Controller, an dem jemand A drückt, wird ein eigener
 // Lagerist am selben Bildschirm. Spieler 1 kann zusätzlich Tastatur & Maus nutzen.
 import { listPads } from './input.js';
+import { xb } from './glyphs.js';
 import { audio } from './audio/index.js';
 
 export const LOCAL_COLORS = ['#ff7a1a', '#22c8e5', '#9be22a', '#ff4fa3'];
@@ -110,7 +111,7 @@ export class LocalLobby {
     while (rows.length < MAX_LOCAL) rows.push(null);
     $('local-slots').innerHTML = rows.map((r, i) => r
       ? `<div class="lslot"><i style="background:${r.color}"></i><b>${esc(r.name)}</b><span>${r.dev}</span></div>`
-      : `<div class="lslot empty"><i></i><b>Spieler ${i + 1}</b><span>Controller: <kbd>A</kbd> drücken</span></div>`).join('');
+      : `<div class="lslot empty"><i></i><b>Spieler ${i + 1}</b><span>Controller: ${xb('A')} drücken</span></div>`).join('');
     $('local-kbm').textContent = this.kbmSeparate
       ? 'Tastatur & Maus: eigener Spieler 1 ✓'
       : 'Tastatur & Maus als eigenen Spieler nutzen';

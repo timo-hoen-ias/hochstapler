@@ -3,6 +3,7 @@
 // (Notleitern). Lokale Mitspieler (Splitscreen) und Online-Spieler werden gleich
 // behandelt: jeder Spieler hat eine ID, die Bedienplätze gehören IDs.
 import { createMachines, NO_INPUT } from './machines.js';
+import { xb } from './glyphs.js';
 import { checkHazards, releaseGrips } from './physics.js';
 import { audio } from './audio/index.js';
 
@@ -100,7 +101,7 @@ export class MachineControl {
       releaseGrips(lp.body);
       lp.body.gripCool = 0;
       const S = m.stations[st];
-      this.g.toast(`${this.g.locals.length > 1 ? lp.name + ': ' : ''}${S.label} – ${S.hint} · G verlassen`);
+      this.g.toast(`${this.g.locals.length > 1 ? lp.name + ': ' : ''}${S.label} – ${S.hint} · G verlassen`, { keys: lp.input?.device === 'pad' || lp.pad !== undefined ? 'pad' : 'kbm' });
       audio.play('ui');
     }
   }
@@ -273,7 +274,8 @@ export class MachineControl {
     for (const lp of this.g.locals) {
       const u = this.usable(lp);
       if (!u) continue;
-      const dev = lp.input?.device === 'pad' || lp.pad !== undefined ? 'X' : lp.input?.device === 'touch' ? '✋' : 'G';
+      const pad = lp.input?.device === 'pad' || lp.pad !== undefined;
+      const dev = pad ? xb('X') : lp.input?.device === 'touch' ? '✋' : '<kbd>G</kbd>';
       const who = multi ? `${lp.name}: ` : '';
       if (u.kind === 'leave') lines.push(`${who}${u.m.stations[u.st].label} · ${dev} verlassen`);
       else if (u.kind === 'lever') lines.push(`${who}${dev} · ${u.l.label}`);
