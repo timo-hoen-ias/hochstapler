@@ -17,6 +17,7 @@ Gebaut mit **Three.js** (Client), **Cloudflare Workers** (Auslieferung) und
 | Shift oder rechte Maustaste | festhalten (macht dich zum Anker, nur am Boden) |
 | Maus / Mausrad | Kamera / Zoom |
 | 1 · 2 · 3 | Zurufe: „Warte!“, „Los, springen!“, „Festhalten!“ |
+| M | Ton an/aus |
 
 ## Die sechs Abschnitte
 
@@ -72,6 +73,7 @@ client/            Three.js-Client (Vite)
   src/render.js    Szene, prozedurale Texturen, Figuren, Seile
   src/net.js       WebSocket + Zeitabgleich (für synchrone Plattformen)
   src/main.js      Spielschleife, Eingabe, HUD
+  src/audio/       Musik, Soundeffekte, Ambiente (alles prozedural, Web Audio)
 src/worker.js      Worker + Durable Object "Room"
 scripts/           Level-Validierung und Physik-Simulation
 ```
@@ -80,3 +82,34 @@ Netzwerkmodell: Jeder Client simuliert seine eigene Figur und schickt 20×/s
 seinen Zustand. Der Raum verteilt ihn an alle anderen und führt Schichtzeit
 und Bestenliste. Bewegliche Plattformen hängen nur von der Serverzeit ab und
 sind dadurch auf allen Rechnern synchron.
+
+## Audio
+
+Alle Klänge entstehen zur Laufzeit mit der Web Audio API – es gibt keine
+Audiodateien und damit keine Lizenzfragen.
+
+- **Musik** (`audio/music.js`): generativer Sequenzer, je Abschnitt eigenes
+  Tempo, eigene Tonart, Akkordfolge und Instrumentierung. Gewechselt wird am
+  Taktanfang; das Versanddach ist das schnellste Thema.
+- **Ambiente** (`audio/ambience.js`): Klangteppich je Abschnitt (Hallenlüftung,
+  Maschinenbrummen, Wasser, Wind) plus zufällige, räumlich verteilte Ereignisse
+  (Durchsage-Gong, Rückfahrwarner, Regalknarzen, Möwen, Schiffshorn …).
+- **Maschinen** (`audio/machines.js`): Förderbänder, Stapler-Gabeln, fahrende
+  Stapler und Kräne klingen dort, wo sie stehen, und reagieren auf ihre
+  Bewegung (Anfahren, Hydraulik, Rückfahrwarner, Anschlag).
+- **Effekte** (`audio/sfx.js`): Sprung, Landung und Schritte je Material,
+  Seil-Knarzen bei Spannung, „Twang“ wenn das Seil straff wird, Fallwind,
+  Zurufe, Mitspieler kommen/gehen, Abschnitts-Gong, Zielfanfare, UI-Klicks.
+
+API fürs Optionsmenü (`import { audio } from './audio/index.js'`):
+
+```js
+audio.setVolume('master' | 'music' | 'sfx' | 'ambience', 0..1);
+audio.getVolume('music');
+audio.setMuted(true); audio.toggleMute(); audio.muted;
+audio.onChange((settings) => { /* Regler aktualisieren */ });
+audio.play('ui');      // auch 'uiBack', 'uiHover'
+audio.unlock();        // aus einer Nutzergeste aufrufen (Klick/Taste)
+```
+
+Einstellungen werden in `localStorage` (`hochstapler.audio`) gespeichert.

@@ -2,6 +2,7 @@ import { buildLevel, SECTIONS, sectionAtHeight } from './level.js';
 import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
+import { audio } from './audio/index.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -29,6 +30,7 @@ let game = null;
 
 function start() {
   if (game) return;
+  audio.unlock(); // Start ist eine Nutzergeste: jetzt darf Ton laufen
   const name = $('name').value.trim() || 'Lagerist';
   const room = ($('room').value.trim() || randomCode()).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   store.set('hochstapler.name', name);
@@ -107,14 +109,20 @@ class Game {
       case 'join':
         this.addRemote(m.player);
         this.toast(`${m.player.name} hängt sich ans Seil`);
+        audio.play('join');
         break;
       case 'leave':
         this.removeRemote(m.id);
         this.toast(`${m.name} hat sich abgeseilt`);
+        audio.play('leave');
         break;
       case 's': {
         const r = this.remotes.get(m.id);
         if (!r) return;
+        // Sprung/Landung des Mitspielers hörbar machen
+        if (r.grounded && !m.g && m.v[1] > 3) audio.remoteJump(m.p);
+        if (!m.g) r.airVy = Math.min(r.airVy || 0, m.v[1]);
+        else if (!r.grounded) { audio.remoteLand(m.p, -(r.airVy || 0)); r.airVy = 0; }
         r.target = m.p; r.vel = m.v; r.yaw = m.y; r.grounded = m.g; r.braced = m.b;
         r.age = 0;
         if (!r.rpos) r.rpos = [...m.p];
@@ -123,7 +131,7 @@ class Game {
       }
       case 'emote': {
         const r = this.remotes.get(m.id);
-        if (r) this.toast(`${r.name}: ${m.e}`);
+        if (r) { this.toast(`${r.name}: ${m.e}`); audio.play('emote', { index: EMOTES.indexOf(m.e), pos: r.rpos }); }
         break;
       }
       case 'finish':
@@ -136,6 +144,7 @@ class Game {
         $('finish').classList.add('hidden');
         this.finished = false;
         this.toast(`${m.by} startet eine neue Schicht`);
+        audio.play('respawn');
         break;
       case 'full':
         this.toast('Raum ist voll (max. 4) – du spielst solo');
@@ -174,8 +183,17 @@ class Game {
       if (e.target.tagName === 'INPUT') return;
       if (e.code === 'Space') { if (!this.keys.has('Space')) this.jumpPressed = true; e.preventDefault(); }
       this.keys.add(e.code);
-      const emotes = { Digit1: 'Warte!', Digit2: 'Los, springen!', Digit3: 'Festhalten!' };
-      if (emotes[e.code]) { this.net.send({ t: 'emote', e: emotes[e.code] }); this.toast(`Du: ${emotes[e.code]}`); }
+      const emotes = { Digit1: EMOTES[0], Digit2: EMOTES[1], Digit3: EMOTES[2] };
+      if (emotes[e.code]) {
+        this.net.send({ t: 'emote', e: emotes[e.code] });
+        this.toast(`Du: ${emotes[e.code]}`);
+        audio.play('emote', { index: EMOTES.indexOf(emotes[e.code]) });
+      }
+      if (e.code === 'KeyM' && !e.repeat) {
+        const muted = audio.toggleMute();
+        if (!muted) audio.play('mute');
+        this.toast(muted ? 'Ton aus (M)' : 'Ton an (M)');
+      }
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
     addEventListener('blur', () => { this.keys.clear(); this.mouseBrace = false; });
@@ -200,6 +218,7 @@ class Game {
       try { await navigator.clipboard.writeText(location.href); this.toast('Link kopiert'); } catch { this.toast(location.href); }
     };
     $('again').onclick = () => {
+      audio.play('ui');
       this.net.send({ t: 'restart' });
       this.startedAt = Date.now();
       this.respawn(true);
@@ -207,7 +226,7 @@ class Game {
       $('finish').classList.add('hidden');
       this.lock();
     };
-    $('stay').onclick = () => { $('finish').classList.add('hidden'); this.lock(); };
+    $('stay').onclick = () => { audio.play('uiBack'); $('finish').classList.add('hidden'); this.lock(); };
   }
 
   lock() {
@@ -246,9 +265,13 @@ class Game {
     let first = true;
     const tNow = this.net.time();
     const steps = Math.min(12, Math.floor(this.acc / step));
+    const ev = { jumped: false, landed: false, landSpeed: 0 };
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
+      const vyBefore = this.body.vel[1];
       stepBody(this.body, first ? input : { ...input, jump: false }, this.world, step);
+      if (this.body.jumped) ev.jumped = true;
+      if (this.body.justLanded) { ev.landed = true; ev.landSpeed = Math.max(ev.landSpeed, -vyBefore); }
       first = false;
       this.ropeStep(step);
     }
@@ -257,7 +280,7 @@ class Game {
 
     // Herunterfallen ins Leere / Rand
     const p = this.body.pos;
-    if (p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) this.respawn(false);
+    if (p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) { this.respawn(false); audio.play('respawn'); ev.landed = false; }
 
     // Mitspieler glätten
     for (const r of this.remotes.values()) {
@@ -296,6 +319,12 @@ class Game {
     }
 
     this.updateCamera(dt);
+    const cp = this.view.camera.position;
+    audio.update({
+      dt, time: tNow, world: this.world, body: this.body, tension: this.tension, ...ev,
+      camPos: [cp.x, cp.y, cp.z], camYaw: this.camYaw,
+      section: sectionAtHeight(this.level, Math.max(0, p[1])),
+    });
     this.hudAcc += dt;
     if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
     this.view.update(dt, this.world, p);
@@ -391,6 +420,7 @@ class Game {
 
   showFinish(name, time) {
     this.finished = true;
+    audio.play('finish');
     document.exitPointerLock?.();
     $('paused').classList.add('hidden');
     $('finish-text').textContent = `${name} hat das Versanddach erreicht! Schichtzeit: ${fmt(time)}`;
@@ -399,6 +429,8 @@ class Game {
     $('finish').classList.remove('hidden');
   }
 }
+
+const EMOTES = ['Warte!', 'Los, springen!', 'Festhalten!'];
 
 function fmt(ms) {
   const s = Math.floor(ms / 1000);
