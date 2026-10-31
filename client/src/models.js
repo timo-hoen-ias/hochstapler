@@ -568,40 +568,150 @@ function mulberry(a) {
 }
 
 // ───────── Wind: Schlieren, die mit der Böe stärker werden ─────────
+// Windzonen sichtbar machen: Böen-Streifen (Windlinien), wirbelnde Schnipsel,
+// halbtransparente Schlieren und Windsäcke an den Rändern, die mit der Böe aufgehen.
+// Alles skaliert mit der Böenstärke, damit man die nächste Böe kommen sieht.
+const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3(), _e = new THREE.Euler();
+function hash(i) { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
 export function buildWind(scene, level) {
   const out = [];
   const c = document.createElement('canvas');
   c.width = 256; c.height = 64;
   const x = c.getContext('2d');
   for (let i = 0; i < 26; i++) {
-    x.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.5})`;
-    x.fillRect(Math.random() * 256, Math.random() * 64, 30 + Math.random() * 60, 1.5);
+    x.fillStyle = `rgba(255,255,255,${0.35 + Math.random() * 0.6})`;
+    x.fillRect(Math.random() * 256, Math.random() * 64, 30 + Math.random() * 60, 2);
   }
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  const lineGeo = new THREE.BoxGeometry(1, 0.035, 0.035);
+  const bitGeo = new THREE.PlaneGeometry(0.16, 0.11);
+  const sockMat = new THREE.MeshStandardMaterial({ color: 0xff5a1a, roughness: 0.7, side: THREE.DoubleSide, emissive: 0x401000 });
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, roughness: 0.7, side: THREE.DoubleSide });
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x3a3f45, metalness: 0.6, roughness: 0.4 });
+  let seed = 0;
   for (const z of level.zones) {
     if (!z.push) continue;
-    const mat = new THREE.MeshBasicMaterial({ map: tex.clone(), transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, color: 0xe8f4ff });
-    mat.map.needsUpdate = true;
+    const w = [z.max[0] - z.min[0], z.max[1] - z.min[1], z.max[2] - z.min[2]];
     const along = Math.abs(z.push[0]) > Math.abs(z.push[2]) ? 0 : 2;
-    const layers = [];
+    const lat = along === 0 ? 2 : 0;
+    const dirSign = Math.sign(along === 0 ? z.push[0] : z.push[2]) || 1;
+    // Schlieren (wie bisher, aber kräftiger)
+    const mat = new THREE.MeshBasicMaterial({ map: tex.clone(), transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide, color: 0xeaf6ff });
+    mat.map.needsUpdate = true;
     for (let i = 0; i < 4; i++) {
-      const w = z.max[0] - z.min[0], d = z.max[2] - z.min[2];
-      const geo = new THREE.PlaneGeometry(along === 0 ? w : d, 0.9 + i * 0.3);
+      const geo = new THREE.PlaneGeometry(along === 0 ? w[0] : w[2], 0.9 + i * 0.3);
       const m = new THREE.Mesh(geo, mat);
-      const lat = along === 0 ? 2 : 0;
       const p = [(z.min[0] + z.max[0]) / 2, z.min[1] + 1 + i * 0.8, (z.min[2] + z.max[2]) / 2];
-      p[lat] = z.min[lat] + (z.max[lat] - z.min[lat]) * (0.2 + i * 0.2);
+      p[lat] = z.min[lat] + w[lat] * (0.2 + i * 0.2);
       m.position.set(...p);
       if (along === 2) m.rotation.y = Math.PI / 2;
       m.renderOrder = 6;
       scene.add(m);
-      layers.push(m);
     }
     mat.map.repeat.set(1.5, 1);
-    out.push({ z, mat, sign: Math.sign(along === 0 ? z.push[0] : z.push[2]) * (along === 0 ? 1 : -1) });
+    // Windlinien: lange, dünne Striche, die mit der Böe durch die Zone schießen
+    const nLines = Math.min(90, Math.round(w[0] * w[2] * w[1] * 0.06) + 24);
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false });
+    const lines = new THREE.InstancedMesh(lineGeo, lineMat, nLines);
+    lines.frustumCulled = false; lines.renderOrder = 7;
+    scene.add(lines);
+    // Schnipsel: Papier und Folie, die durch die Luft wirbeln
+    const nBits = Math.min(40, Math.round(nLines * 0.4));
+    const bitMat = new THREE.MeshBasicMaterial({ color: 0xf2e6c8, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+    const bits = new THREE.InstancedMesh(bitGeo, bitMat, nBits);
+    bits.frustumCulled = false;
+    scene.add(bits);
+    // Windsäcke an zwei Ecken (stromaufwärts), zeigen Richtung und Stärke
+    const socks = [];
+    for (const e of [0.15, 0.85]) {
+      const base = [0, z.min[1], 0];
+      base[along] = dirSign > 0 ? z.min[along] + 0.3 : z.max[along] - 0.3;
+      base[lat] = z.min[lat] + w[lat] * e;
+      const g = new THREE.Group();
+      g.position.set(base[0], base[1], base[2]);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.6, 6), poleMat);
+      pole.position.y = 1.3; g.add(pole);
+      const sock = new THREE.Group();
+      sock.position.y = 2.5;
+      for (let k = 0; k < 4; k++) {
+        const r0 = 0.22 - k * 0.035, r1 = 0.22 - (k + 1) * 0.035;
+        const seg = new THREE.Mesh(new THREE.CylinderGeometry(r0, r1, 0.28, 10, 1, true).rotateZ(-Math.PI / 2).translate(0.14 + k * 0.28, 0, 0), k % 2 ? stripeMat : sockMat);
+        sock.add(seg);
+      }
+      sock.rotation.y = along === 0 ? (dirSign > 0 ? 0 : Math.PI) : (dirSign > 0 ? -Math.PI / 2 : Math.PI / 2);
+      g.add(sock);
+      scene.add(g);
+      socks.push(sock);
+    }
+    const parts = [];
+    for (let i = 0; i < nLines; i++) parts.push({ u: hash(seed + i), a: hash(seed + i + 0.3), b: hash(seed + i + 0.7), len: 0.8 + hash(seed + i + 0.9) * 1.8 });
+    const bitParts = [];
+    for (let i = 0; i < nBits; i++) bitParts.push({ u: hash(seed + 50 + i), a: hash(seed + 51 + i), b: hash(seed + 52 + i), spin: hash(seed + 53 + i) * 6 });
+    seed += 100;
+    out.push({
+      z, mat, lines, lineMat, bits, bitMat, socks, parts, bitParts, along, lat, w, dirSign,
+      sign: dirSign * (along === 0 ? 1 : -1),
+      center: [(z.min[0] + z.max[0]) / 2, (z.min[1] + z.max[1]) / 2, (z.min[2] + z.max[2]) / 2],
+    });
   }
   return out;
+}
+
+// Pro Frame: f = Böenstärke 0..1, focus = Kamerafokus (weit entfernte Zonen ruhen)
+export function updateWind(list, dt, gustOf, focus) {
+  const t = performance.now() / 1000;
+  for (const o of list) {
+    const f = gustOf(o.z);
+    const near = Math.hypot(o.center[0] - focus[0], o.center[1] - focus[1], o.center[2] - focus[2]) < 70;
+    o.lines.visible = o.bits.visible = near;
+    o.mat.opacity = 0.1 + 0.5 * f;
+    o.mat.map.offset.x -= o.sign * dt * (0.6 + 2.2 * f);
+    for (const s of o.socks) {
+      // schlaff hängend bei Flaute, waagerecht und flatternd bei voller Böe
+      s.rotation.z = -(1 - f) * 1.2 + Math.sin(t * (6 + 10 * f)) * 0.06 * f;
+      s.scale.set(0.6 + 0.4 * f, 1, 1);
+    }
+    if (!near) continue;
+    const { z, w, along, lat, dirSign } = o;
+    const speed = 4 + 22 * f;
+    // Linien: nur bei Böe richtig sichtbar, vorher als dünne Vorboten
+    o.lineMat.opacity = 0.1 + 0.75 * f * f;
+    o.parts.forEach((p, i) => {
+      p.u = (p.u + dt * speed / w[along] * (0.7 + 0.6 * p.b)) % 1;
+      const pos = [0, 0, 0];
+      pos[along] = dirSign > 0 ? z.min[along] + p.u * w[along] : z.max[along] - p.u * w[along];
+      pos[lat] = z.min[lat] + p.a * w[lat];
+      pos[1] = z.min[1] + 0.3 + p.b * (w[1] - 0.6) + Math.sin(t * 2 + i) * 0.1;
+      _p.set(pos[0], pos[1], pos[2]);
+      // Strich liegt längs x; für Wind entlang z um 90° drehen
+      const len = p.len * (0.4 + 1.8 * f);
+      _q.setFromEuler(_e.set(0, along === 2 ? Math.PI / 2 : 0, 0));
+      _s.set(len, 1, 1);
+      // an den Enden ausblenden
+      const edge = Math.min(1, p.u * 6, (1 - p.u) * 6);
+      _s.multiplyScalar(Math.max(0.01, edge));
+      _m4.compose(_p, _q, _s);
+      o.lines.setMatrixAt(i, _m4);
+    });
+    o.lines.instanceMatrix.needsUpdate = true;
+    // Schnipsel: wirbeln langsamer, bei Flaute fallen sie fast zu Boden
+    o.bitMat.opacity = 0.3 + 0.7 * f;
+    o.bitParts.forEach((p, i) => {
+      p.u = (p.u + dt * (0.8 + 9 * f) / w[along] * (0.6 + 0.8 * p.b)) % 1;
+      const pos = [0, 0, 0];
+      pos[along] = dirSign > 0 ? z.min[along] + p.u * w[along] : z.max[along] - p.u * w[along];
+      pos[lat] = z.min[lat] + p.a * w[lat] + Math.sin(t * 1.7 + i) * 0.4;
+      pos[1] = z.min[1] + 0.2 + (0.2 + 0.8 * f) * p.b * (w[1] - 0.4) + Math.sin(t * 3 + i * 2) * 0.25 * f;
+      _p.set(pos[0], pos[1], pos[2]);
+      _q.setFromEuler(_e.set(t * p.spin, t * p.spin * 0.7, t * 1.3 + i));
+      const edge = Math.min(1, p.u * 8, (1 - p.u) * 8);
+      _s.setScalar(Math.max(0.01, edge));
+      _m4.compose(_p, _q, _s);
+      o.bits.setMatrixAt(i, _m4);
+    });
+    o.bits.instanceMatrix.needsUpdate = true;
+  }
 }
 
 // ───────── Laser, Stacheln, Druckplatten, Rolltore ─────────
