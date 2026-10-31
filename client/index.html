@@ -136,8 +136,8 @@
       <h2>Pause</h2>
       <p class="small center" id="pause-room"></p>
       <button class="primary" type="button" data-act="resume">Weiterklettern</button>
-      <button class="ghost wide" type="button" data-act="copylink">Einladungslink kopieren</button>
-      <div class="mode-box">
+      <button id="copylink-btn" class="ghost wide" type="button" data-act="copylink">Einladungslink kopieren</button>
+      <div class="mode-box" id="mode-box">
         <h3>Spielmodus</h3>
         <button id="mode-btn" class="ghost wide" type="button" data-act="mode" data-lr>◀ Alle an einem Seil ▶</button>
         <button id="shuffle-btn" class="ghost wide hidden" type="button" data-act="shuffle">Teams neu auslosen (Rennen neu starten)</button>
@@ -162,38 +162,41 @@
       <div class="ctl-grid">
         <div class="ctl">
           <h3>Tastatur &amp; Maus</h3>
-          <div><kbd>W A S D</kbd> / Pfeile <span>laufen</span></div>
-          <div><kbd>Leertaste</kbd> <span>springen</span></div>
-          <div><kbd>Shift</kbd> / <kbd>Rechtsklick</kbd> <span>festhalten</span></div>
-          <div><kbd>Maus</kbd> · <kbd>Q</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>F</kbd> <span>Kamera</span></div>
-          <div><kbd>Mausrad</kbd> <span>Zoom</span></div>
-          <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <span>Zurufe</span></div>
-          <div><kbd>T</kbd> / <kbd>Rücktaste</kbd> <span>zurück zum Zwischenstopp</span></div>
-          <div><kbd>M</kbd> <span>Ton an/aus</span></div>
-          <div><kbd>Esc</kbd> <span>Pause</span></div>
+          <div><em><kbd>W A S D</kbd> <kbd>Pfeile</kbd></em><span>laufen</span></div>
+          <div><em><kbd>Leertaste</kbd></em><span>springen</span></div>
+          <div><em><kbd>Shift</kbd> <kbd>Rechtsklick</kbd></em><span>festhalten</span></div>
+          <div><em><kbd>G</kbd></em><span>benutzen (Maschinen)</span></div>
+          <div><em><kbd>Maus</kbd> <kbd>Q</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>F</kbd></em><span>Kamera</span></div>
+          <div><em><kbd>Mausrad</kbd></em><span>Zoom</span></div>
+          <div><em><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></em><span>Zurufe</span></div>
+          <div><em><kbd>T</kbd> <kbd>Rücktaste</kbd></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><kbd>M</kbd></em><span>Ton an/aus</span></div>
+          <div><em><kbd>Esc</kbd></em><span>Pause</span></div>
         </div>
         <div class="ctl">
           <h3>Controller</h3>
-          <div><i data-xb="LS"></i> <span>laufen</span></div>
-          <div><i data-xb="RS"></i> <span>Kamera</span></div>
-          <div><i data-xb="A"></i> <span>springen</span></div>
-          <div><i data-xb="RT"></i> / <i data-xb="RB"></i> / <i data-xb="B"></i> <span>festhalten</span></div>
-          <div><i data-xb="X"></i> <span>benutzen (Maschinen)</span></div>
-          <div><i data-xb="DLeft Y LB"></i> <span>Zurufe</span></div>
-          <div><i data-xb="DUpDown"></i> <span>Zoom</span></div>
-          <div><i data-xb="View"></i> <span>zurück zum Zwischenstopp</span></div>
-          <div><i data-xb="Menu"></i> <span>Pause</span></div>
-          <div><i data-xb="A"></i> an freiem Controller <span>lokal einsteigen</span></div>
+          <div><em><i data-xb="LS"></i></em><span>laufen</span></div>
+          <div><em><i data-xb="A"></i></em><span>springen</span></div>
+          <div><em><i data-xb="RT"></i> <i data-xb="RB"></i> <i data-xb="B"></i></em><span>festhalten</span></div>
+          <div><em><i data-xb="X"></i></em><span>benutzen (Maschinen)</span></div>
+          <div><em><i data-xb="RS"></i></em><span>Kamera</span></div>
+          <div><em><i data-xb="DUpDown"></i></em><span>Zoom</span></div>
+          <div><em><i data-xb="DLeft Y LB"></i></em><span>Zurufe</span></div>
+          <div><em><i data-xb="View"></i></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><i data-xb="Menu"></i></em><span>Pause</span></div>
+          <div><em><i data-xb="A"></i></em><span>an freiem Controller: lokal einsteigen</span></div>
         </div>
         <div class="ctl">
           <h3>Touch</h3>
-          <div><kbd>linke Hälfte</kbd> <span>Joystick</span></div>
-          <div><kbd>rechte Hälfte</kbd> <span>Kamera wischen</span></div>
-          <div><kbd>⤒</kbd> <span>springen</span></div>
-          <div><kbd>✊</kbd> halten <span>festhalten</span></div>
-          <div><kbd>💬</kbd> <span>Zurufe</span></div>
-          <div><kbd>＋ −</kbd> <span>Zoom</span></div>
-          <div><kbd>↺</kbd> <span>zurück zum Zwischenstopp</span></div>
+          <div><em><kbd>linke Hälfte</kbd></em><span>laufen (Joystick)</span></div>
+          <div><em><kbd>⤒</kbd></em><span>springen</span></div>
+          <div><em><kbd>✊</kbd></em><span>halten = festhalten</span></div>
+          <div><em><kbd>✋</kbd></em><span>benutzen (Maschinen)</span></div>
+          <div><em><kbd>rechte Hälfte</kbd></em><span>Kamera wischen</span></div>
+          <div><em><kbd>＋</kbd> <kbd>−</kbd></em><span>Zoom</span></div>
+          <div><em><kbd>💬</kbd></em><span>Zurufe</span></div>
+          <div><em><kbd>↺</kbd></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><kbd>❚❚</kbd></em><span>Pause</span></div>
         </div>
       </div>
       <p class="small">Festhalten funktioniert nur am Boden: Du wirst zum Anker und sicherst, wer gerade fällt.</p>
@@ -201,6 +204,7 @@
     </section>
   </div>
 
+  <div id="rotate" aria-hidden="true"><div><span>⟳</span>Handy ins Querformat drehen</div></div>
   <div id="split" class="hidden"></div>
   <div id="hud" class="hidden">
     <div id="hud-left">

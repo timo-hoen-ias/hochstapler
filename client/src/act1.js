@@ -25,12 +25,11 @@ export function buildAct1(k) {
   // ───────── 1 · Wareneingang: Paletten, LKW, erste Kante, Rohrbrücke ─────────
   section(H[0], [0, -1], 0);
   step('f', 1.0, 1.0, 2, 3, 'goods', { h: 'ground' });
-  sign('TOR 1 · WARENEINGANG', 'Seil straff halten, gemeinsam springen');
+  sign('TOR 1 · WARENEINGANG');
   step('f', 1.4, 1.1, 2, 2, 'crate', { h: 'ground', off: 0.6 });
   step('r', 1.6, 0.5, 1.4, 1.4, 'carton', { h: 'ground' });
   step('f', 1.2, 0.9, 2.4, 2.4, 'goods', { h: 'ground', off: -0.4 });
   step('f', 1.0, 1.85, 3, 2.6, 'goods', { h: 'ground', how: 'ledge' });
-  sign('ZU HOCH?', 'An die Kante springen und festhalten – Sprung zieht hoch');
   const trailer = step('l', 1.2, 0.9, 2.6, 7, 'trailer', { h: 'ground' });
   {
     // Stachelstreifen mitten auf dem Auflieger: drüberspringen
@@ -50,10 +49,9 @@ export function buildAct1(k) {
   const s2start = k.pathLength();
   step('f', 1.5, 0.6, 3, 3, 'checkpoint');
   markCheckpoint('Halle 2');
-  sign('HALLE 2 · HOCHREGALLAGER', 'Traversen sind schmal – Mitte treffen');
+  sign('HALLE 2 · HOCHREGALLAGER');
   const b1 = step('f', 1.3, 0.9, 3, 0.25, 'beam');
   laserAcross(b1, 0, 0, 2.6, { timer: { period: 3.6, phase: 0, on: 0.5 } });
-  sign('LASERSCHRANKE', 'Rot = Stromschlag. Warten, bis sie aus ist');
   step('f', 1.6, 0.7, 3, 0.25, 'beam', { off: 0.8 });
   step('f', 1.6, 0.6, 3, 0.25, 'beam', { off: -0.6 });
   step('l', 1.4, 1.0, 2.4, 1.6, 'goods', { h: 1.0 });
@@ -81,7 +79,7 @@ export function buildAct1(k) {
   section(H[2], [0, 1], top());
   step('f', 1.5, 0.8, 3, 3, 'checkpoint');
   markCheckpoint('Halle 3');
-  sign('HALLE 3 · FÖRDERTECHNIK', 'Rutsche: am Ende abspringen');
+  sign('HALLE 3 · FÖRDERTECHNIK');
   const cp3 = k.prev;
   const tower = ladderUp('f', 0, 4.0, 3, 3, 'machine');
   {
@@ -93,7 +91,6 @@ export function buildAct1(k) {
     const [tx, tz] = mid(tower);
     const p2 = plate(tower, tx + back[0] * 0.8 - right[0] * 0.8, tz + back[1] * 0.8 - right[1] * 0.8);
     gate([lad.min[0] - 0.05, lad.min[1] + 0.05, lad.min[2] - 0.05], [lad.max[0] + 0.05, lad.max[1] - 0.02, lad.max[2] + 0.05], [p1, p2]);
-    sign('ROLLTOR', 'Einer auf die Platte, der andere klettert – oben wieder drücken');
   }
   ramp('f', 0, 0, 8, 1.6, 3.5, { slide: true });
   step('f', 3.0, -0.5, 6, 1.4, 'belt', { belt: [0, 0, -2.0], how: 'long' });
@@ -112,7 +109,7 @@ export function buildAct1(k) {
   section(H[3], [1, 0], top());
   step('f', 1.5, 0.6, 3, 3, 'checkpoint');
   markCheckpoint('Halle 4');
-  sign('HALLE 4 · STAPLERZONE', 'Fässer rollen – mittig bleiben');
+  sign('HALLE 4 · STAPLERZONE');
   mover('lift', 'f', 0.8, 2, 2, { range: 3, period: 7, model: 'forklift' });
   const sp = step('f', 1.2, 0.5, 2, 2, 'grate');
   hazard('spikes', [sp.min[0], sp.max[1], sp.min[2]], [sp.max[0], sp.max[1] + 0.4, sp.max[2]], { timer: { period: 3.2, phase: 0.3, on: 0.45 } });
@@ -133,7 +130,7 @@ export function buildAct1(k) {
   section(H[4], [0, -1], top());
   step('f', 1.5, 0.8, 6, 2.4, 'container', { h: 2.6, supports: true });
   markCheckpoint('Kai 5');
-  sign('KAI 5 · CONTAINERHAFEN', 'Haken greifen – Sprung lässt los');
+  sign('KAI 5 · CONTAINERHAFEN');
   step('f', 1.2, 1.0, 2.4, 6, 'container', { h: 2.6, supports: true });
   hook('f', 1.2, 2.6, { motion: { dist: 10, period: 11 }, len: 2.4, rail: true });
   step('f', 0.4, -1.0, 2.6, 2.6, 'container', { h: 2.6, supports: true });
@@ -158,7 +155,7 @@ export function buildAct1(k) {
   section(H[5], [-1, 0], top());
   step('f', 1.5, 0.6, 3, 3, 'checkpoint');
   markCheckpoint('Dach');
-  sign('DACH · VERSAND', 'Böen! Festhalten (Shift) schützt');
+  sign('DACH · VERSAND');
   const windy = [];
   windy.push(ramp('f', 1.0, 0.2, 6, 3, -2.0, { mat: 'roofslope' }));
   windy.push(step('f', 2.4, -0.3, 3, 3, 'roof', { h: 0.6, how: 'long' }));
@@ -179,7 +176,6 @@ export function buildAct1(k) {
     const fz = k.dirVec('f');
     const zA = laserAcross(w2[0], fz[0] ? 0 : 2, 0, 3.2, { plate: pa });
     zA.plate2 = pb;
-    sign('LASERZAUN', 'Einer hält die Platte, der andere läuft');
   }
   wind(span(w2), [k.dirVec('l')[0] * 6, 0, k.dirVec('l')[1] * 6], { period: 5, phase: 0.6 });
   mover('lift', 'f', 0.8, 2, 2, { range: 4, period: 8 });

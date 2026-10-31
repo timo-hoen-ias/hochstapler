@@ -55,7 +55,7 @@ export class Renderer {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(s.fov, window.innerWidth / window.innerHeight, 0.1, 600);
-    this.tex = makeTextures();
+    this.tex = makeTextures({ scale: s.quality === 'low' ? 1 : 2 }); // Niedrig: Grafikspeicher sparen
     this.mats = this.makeMaterials();
     this.mm = modelMaterials(this.tex, this.mats);
     for (const k of ['machine', 'pipe', 'duct']) this.mats[k] = this.mm[k];
@@ -558,12 +558,20 @@ export class Renderer {
 
   buildSigns() {
     for (const s of this.level.signs) {
+      // Schild als Tafel: Schrift auf beiden Seiten lesbar (nicht gespiegelt von hinten)
       const t = textCanvas([s.text, s.sub]);
-      const mat = new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, toneMapped: false });
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.1), mat);
-      mesh.position.set(...s.pos);
-      mesh.rotation.y = Math.atan2(s.face[0], s.face[1]);
-      this.scene.add(mesh);
+      const mat = new THREE.MeshBasicMaterial({ map: t, toneMapped: false });
+      const board = new THREE.Group();
+      board.position.set(...s.pos);
+      board.rotation.y = Math.atan2(s.face[0], s.face[1]);
+      const plane = new THREE.PlaneGeometry(3.6, 1.1);
+      const front = new THREE.Mesh(plane, mat);
+      front.position.z = 0.035;
+      const back = new THREE.Mesh(plane, mat);
+      back.position.z = -0.035; back.rotation.y = Math.PI;
+      const frame = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.2, 0.06), this.mats.upright);
+      board.add(front, back, frame);
+      this.scene.add(board);
       const post = this.addDecorBox([s.pos[0] - 0.06, s.pos[1] - 2.6, s.pos[2] - 0.06], [s.pos[0] + 0.06, s.pos[1] - 0.55, s.pos[2] + 0.06], this.mats.upright);
       post.castShadow = false;
     }

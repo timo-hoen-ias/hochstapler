@@ -82,7 +82,6 @@ export function firePieces(k, S, rnd) {
       }
       const E = put(F.box(a1 - eLen, a1, -W, W, fl, surf + 0.35), 'pooltile', { grp });
       k.addPath(E, 'static', { how: 'swimout' });
-      k.sign('LÖSCHTEICH', 'Festhalten (Shift) = tauchen · unter den Schleusen durch');
       S('f', 1.3, 0.3, 2.2, 2.2, T.mats[1], { exact: true });
     },
 
@@ -113,7 +112,6 @@ export function firePieces(k, S, rnd) {
       const E = put(F.box(wt + inner - eLen, wt + inner, -Wd, Wd, fl, shelf), 'pooltile', { grp });
       k.addPath(E, 'static', { how: 'swimout' });
       k.prop('floodtank', null, { box: F.box(0, wt + inner + wt, -O, O, fl - 0.4, H), f: F.f, water: w.index });
-      k.sign('FLUTKAMMER', 'Das Wasser steigt – oben am Podest festhalten');
       S('f', 1.3, 0.2, 2.2, 2.2, T.mats[1], { exact: true });
     },
 
@@ -125,7 +123,6 @@ export function firePieces(k, S, rnd) {
       k.extinguisher([cx + r[0] * 1.15 + b[0] * 0.7, st.max[1], cz + r[1] * 1.15 + b[1] * 0.7], [-r[0], -r[1]]);
       const sx = cx - r[0] * 1.0 + b[0] * 0.7, sz = cz - r[1] * 1.0 + b[1] * 0.7;
       k.water([sx - 0.5, st.max[1], sz - 0.5], [sx + 0.5, st.max[1] + 2.7, sz + 0.5], { shower: true });
-      k.sign('BRANDHALLE', 'Feuerlöscher: auf die Flammen zulaufen · Notdusche: kurz feuerfest');
       const n = 3 + (g > 0.5 ? 1 : 0);
       for (let i = 0; i < n; i++) {
         const p = S(i && rnd() < 0.35 ? turn() : 'f', R(1.3, 1.7), R(0.0, 0.5), 2.4, 2.4, T.mats[(i + 2) % T.mats.length], { exact: true });
@@ -168,7 +165,6 @@ export function firePieces(k, S, rnd) {
       const st = S('f', R(1.0, 1.4), R(0.3, 0.7), 2.6, 2.6, 'concrete', { exact: true });
       const [sx, sz] = mid(st);
       const pa = k.plate(st, sx, sz, 1.0);
-      k.sign('SPRINKLER', 'Einer hält den Auslöser, der andere läuft durchs Feuer');
       const b1 = S('f', R(1.5, 1.8), 0, R(4.6, 5.4), 0.9, 'grate', { exact: true });
       const b2 = S('f', R(1.4, 1.7), R(0.0, 0.3), 2.2, 2.2, 'grate', { exact: true });
       const [bx, bz] = mid(b2);

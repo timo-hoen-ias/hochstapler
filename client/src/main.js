@@ -110,6 +110,7 @@ function start(solo, local = null) {
   lobby.close();
   menu.close();
   $('hud').classList.remove('hidden');
+  document.body.classList.add('ingame');
   if (settings.touchEnabled()) {
     // Auf Handys: Vollbild + Querformat, soweit der Browser es erlaubt
     document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
@@ -531,6 +532,9 @@ class Game {
     $('pause-room').textContent = online
       ? `Raum ${this.room} · ${n} ${this.mode === 'teams' ? 'Spieler · 2 gegen 2' : 'am Seil'}${here > 1 ? ` (${here} hier)` : ''}`
       : here > 1 ? `Lokal · ${here} am Seil` : 'Solo';
+    // Offline (Solo / nur dieses Gerät) gibt es weder Einladung noch Moduswahl
+    $('copylink-btn').classList.toggle('hidden', !online);
+    $('mode-box').classList.toggle('hidden', !online);
     $('mode-btn').textContent = `◀ ${modeLabel(this.mode)} ▶`;
     $('mode-btn').disabled = !host || (this.mode !== 'teams' && n !== 4);
     $('shuffle-btn').classList.toggle('hidden', !(host && this.mode === 'teams'));
@@ -897,10 +901,6 @@ class Game {
       if (lp.splashEv) audio.play('splash', { v: lp.splashEv, pos: lp === this.p1 ? undefined : b.pos });
       if (lp.gotExt) {
         audio.play('extGrab');
-        if (!this.extHinted) { this.extHinted = true; this.toast('Feuerlöscher! Lauf auf die Flammen zu, dann sprüht er von selbst'); }
-      }
-      if (b.wet > 7.9 && !b.swim && !this.wetHinted && this.world.showers.some((w) => b.pos[0] > w.min[0] && b.pos[0] < w.max[0] && b.pos[2] > w.min[2] && b.pos[2] < w.max[2])) {
-        this.wetHinted = true; this.toast('Klatschnass – ein paar Sekunden feuerfest');
       }
       lp.splashEv = 0; lp.gotExt = false;
       if (b.spray) {
@@ -908,7 +908,6 @@ class Game {
         if (lp.sprayT <= 0) { lp.sprayT = 0.16; audio.play('spray', { pos: lp === this.p1 ? undefined : b.pos }); }
       }
       if (b.steam) { lp.steamT = (lp.steamT || 0) - dt; if (lp.steamT <= 0) { lp.steamT = 0.3; audio.play('hiss', { d: 0.3 }); } }
-      if (b.swim && !lp.wasSwim && !lp.swimHinted && this.locals.length === 1) { lp.swimHinted = true; this.toast('Schwimmen: Festhalten (Shift) taucht, Springen hechtet hinaus', { keys: lp.pad !== undefined || lp.input?.device === 'pad' ? 'pad' : 'kbm' }); }
       lp.wasSwim = !!b.swim;
     }
     for (const r of this.remotes.values()) {

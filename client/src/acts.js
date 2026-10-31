@@ -411,7 +411,6 @@ export function buildActs(k) {
       const [tx, tz] = mid(tower);
       const p2 = k.plate(tower, tx + back[0] * 0.8 - right[0] * 0.8, tz + back[1] * 0.8 - right[1] * 0.8);
       k.gate([lad.min[0] - 0.05, lad.min[1] + 0.05, lad.min[2] - 0.05], [lad.max[0] + 0.05, lad.max[1] - 0.02, lad.max[2] + 0.05], [p1, p2]);
-      k.sign('ROLLTOR', 'Platte drücken, Partner klettert – oben wieder drücken');
       S('f', R(1.2, 1.6), R(0.2, 0.6), 2.2, 2.2, T.mats[1]);
     },
     fence(T, g) {
@@ -424,7 +423,6 @@ export function buildActs(k) {
       const pb = k.plate(b2, bx, bz, 0.7);
       const z = laserAcross(T, b1, axisOf('f'), 0, 3.2, { plate: pa });
       z.plate2 = pb;
-      k.sign('LASERZAUN', 'Einer hält die Platte, der andere läuft');
       S('f', 1.3, 0.3, 2.2, 2.2, T.mats[1]);
     },
   };
