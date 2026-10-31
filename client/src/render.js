@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeTextures, textCanvas } from './textures.js';
 import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
+import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -51,10 +52,19 @@ export class Renderer {
     this.camera = new THREE.PerspectiveCamera(s.fov, window.innerWidth / window.innerHeight, 0.1, 600);
     this.tex = makeTextures();
     this.mats = this.makeMaterials();
+    this.mm = modelMaterials(this.tex, this.mats);
+    for (const k of ['machine', 'pipe', 'duct']) this.mats[k] = this.mm[k];
 
     this.setupSky();
     this.setupLights();
     this.buildStatics();
+    // Modelle aus models.js: Schrägen, Rohre, Leitern, Kräne, Kulisse
+    this.spinners = buildShapes(this.scene, level, this.mm);
+    buildLadders(this.scene, level, this.mm);
+    this.hookLive = buildHooks(this.scene, level, this.mm);
+    buildYard(this.scene, level, this.mm);
+    this.windFx = buildWind(this.scene, level);
+    this.puzzles = buildPuzzles(this.scene, level, { ...this.mm, hazard: this.mats.hazard }, this.tex);
     this.buildMovers();
     this.buildDecor();
     this.buildSigns();
@@ -370,7 +380,7 @@ export class Renderer {
   buildStatics() {
     const groups = {};
     for (const b of this.level.statics) {
-      const key = b.belt || b.blink || b.big ? null : b.mat;
+      const key = b.belt || b.blink || b.big || b.ramp || b.round || b.gate ? null : b.mat;
       if (!key) continue;
       const scale = b.mat.startsWith('container') ? 2.4 : UV_SCALE[b.mat] ?? 1;
       (groups[key] ||= []).push(boxGeo(b.min, b.max, scale));
@@ -395,7 +405,7 @@ export class Renderer {
     // Förderbänder einzeln (eigene, laufende Textur)
     this.belts = [];
     for (const b of this.level.statics) {
-      if (!b.belt) continue;
+      if (!b.belt || b.round) continue;
       const t = this.tex.belt.clone();
       t.needsUpdate = true;
       const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.7 });
@@ -428,6 +438,34 @@ export class Renderer {
       body.castShadow = body.receiveShadow = true;
       g.add(body);
 
+      if (m.model === 'forklift' || m.model === 'shuttle') {
+        const [sx, sz] = m.side;
+        const cx = (b.max[0] - b.min[0]) / 2, cz = (b.max[2] - b.min[2]) / 2;
+        const hw = Math.abs(sx) ? cx : cz;
+        if (m.model === 'forklift') {
+          const fl = forkliftGroup(this.mm, m.side, m.kind);
+          fl.rotation.y = Math.atan2(-sz, sx);
+          // Gabeln unter der Plattform
+          for (const o of [-0.45, 0.45]) {
+            const tine = new THREE.Mesh(new THREE.BoxGeometry(Math.abs(sx) ? 1.9 : 0.12, 0.06, Math.abs(sx) ? 0.12 : 1.9), this.mm.forkDark);
+            tine.position.set(cx + (Math.abs(sz) ? o : 0), -0.04, cz + (Math.abs(sx) ? o : 0));
+            g.add(tine);
+          }
+          if (m.kind === 'lift') {
+            fl.position.set(b.min[0] + cx + sx * (hw + 0.35), b.min[1] - (b.min[1] > 0.5 ? 0 : 0), b.min[2] + cz + sz * (hw + 0.35));
+            fl.position.y = b.min[1] - 0.3;
+            this.scene.add(fl);
+          } else {
+            fl.position.set(cx + sx * (hw + 0.1), -0.3, cz + sz * (hw + 0.1));
+            g.add(fl);
+          }
+        } else {
+          const sh = new THREE.Mesh(new THREE.BoxGeometry(b.max[0] - b.min[0] - 0.2, 0.35, b.max[2] - b.min[2] - 0.2), this.mm.shuttle);
+          sh.position.set(cx, -0.17, cz);
+          sh.castShadow = true;
+          g.add(sh);
+        }
+      }
       if (m.kind === 'lift') {
         // Gabelstapler-Mast neben der Plattform
         const [sx, sz] = m.side;
@@ -559,6 +597,7 @@ export class Renderer {
     this.fanBlades = [];
     const bladeMat = new THREE.MeshStandardMaterial({ color: 0xb8c0c6, metalness: 0.7, roughness: 0.3 });
     for (const z of this.level.zones) {
+      if (z.push) continue;
       const geo = boxGeo(z.min, z.max, 0);
       const m = new THREE.Mesh(geo, mat);
       m.renderOrder = 5;
@@ -694,11 +733,17 @@ export class Renderer {
       av.legL.rotation.x = s; av.legR.rotation.x = -s;
       av.armL.rotation.x = -s; av.armR.rotation.x = s;
       av.armL.rotation.z = 0; av.armR.rotation.z = 0;
+    } else if (braced) {
+      // hängt an Kante, Haken oder Leiter: Arme nach oben
+      av.phase += dt * 6;
+      av.armL.rotation.x = -2.9 + Math.sin(av.phase) * 0.15; av.armR.rotation.x = -2.9 - Math.sin(av.phase) * 0.15;
+      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
+      av.legL.rotation.x = 0.15 + Math.sin(av.phase * 0.5) * 0.2; av.legR.rotation.x = -0.1 - Math.sin(av.phase * 0.5) * 0.2;
     } else {
       av.legL.rotation.x = 0.5; av.legR.rotation.x = -0.3;
       av.armL.rotation.z = -2.4; av.armR.rotation.z = 2.4;
     }
-    if (braced) {
+    if (braced && grounded) {
       av.legL.rotation.x = -0.9; av.legR.rotation.x = 0.6;
       av.armL.rotation.x = -1.2; av.armR.rotation.x = -1.2;
       av.armL.rotation.z = 0; av.armR.rotation.z = 0;
@@ -760,6 +805,17 @@ export class Renderer {
       bm.mat.emissiveIntensity = st === 1 ? (Math.sin(performance.now() / 60) > 0 ? 0.9 : 0.1) : 0;
     }
     if (this.windTex) this.windTex.offset.y -= dt * 1.5;
+    for (const sp of this.spinners) {
+      // Oberfläche läuft mit spin (m/s) in Richtung der Querachse
+      if (sp.axis === 0) sp.g.rotation.x -= sp.w * dt; else sp.g.rotation.z += sp.w * dt;
+    }
+    updateHooks(this.hookLive, this.locals);
+    updatePuzzles(this.puzzles, dt);
+    for (const w of this.windFx) {
+      const f = colliders.gust(w.z);
+      w.mat.opacity = 0.08 + 0.4 * f;
+      w.mat.map.offset.x -= w.sign * dt * (0.6 + 1.6 * f);
+    }
     for (const f of this.fanBlades) f.rotation.y += dt * 12;
     if (this.flag) this.flag.rotation.y = Math.sin(performance.now() / 600) * 0.3;
     // Schattenkamera folgt dem Spieler, auf Texel gerastet gegen Flimmern

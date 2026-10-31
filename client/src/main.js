@@ -1,5 +1,5 @@
 import { buildLevel, sectionAtHeight } from './level.js';
-import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
+import { Colliders, createBody, stepBody, applyRope, releaseGrips, PHYS } from './physics.js';
 import { FixedStep } from './loop.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
@@ -118,6 +118,7 @@ class Game {
     this.world = new Colliders(this.level);
     this.view = new Renderer($('app'), this.level);
     this.locals = [];
+    this.view.locals = this.locals; // Kranhaken folgen den Händen lokaler Spieler
     this.remotes = new Map();
     this.camYaw = 0; // gemeinsame Kamera (ein Spieler oder Splitscreen aus)
     this.camPitch = 0.35;
@@ -679,6 +680,9 @@ class Game {
     // Sprung bleibt gemerkt, falls dieser Frame keinen Physikschritt hat (>120-Hz-Bildschirme)
     locals.forEach((lp, k) => { if (inputs[k].jump) lp.jump = true; });
     const steps = this.clock.frame(dt, false);
+    // Druckplatten: Fußpunkte aller Spieler (lokal und online)
+    const feet = [...locals.map((lp) => lp.body.pos), ...[...this.remotes.values()].map((r) => r.rpos)];
+    this.world.updatePlates(feet, dt, feet.length > 1 ? 1.2 : 6);
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
       locals.forEach((lp, k) => {
@@ -687,6 +691,7 @@ class Game {
         stepBody(b, { ...inputs[k], jump: lp.jump }, this.world, step);
         lp.jump = false;
         if (b.jumped) evs[k].jumped = true;
+        if (b.zapped) { audio.play('respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
         if (b.justLanded) { evs[k].landed = true; evs[k].landSpeed = Math.max(evs[k].landSpeed, -vyBefore); }
       });
       this.ropeStep(step);
@@ -706,7 +711,10 @@ class Game {
       // Abgestürzt: deutlich unter den letzten Zwischenstopp gefallen oder aus der Welt
       const p = b.pos;
       const cpY = this.level.checkpoints[this.cpOf(lp)].pos[1];
-      if (p[1] < cpY - 8 || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
+      // Wer fällt, landet weiter unten und klettert von dort wieder hoch. Zurück zum
+      // Zwischenstopp geht es erst unten auf dem Hof (oder aus der Welt heraus).
+      const onYard = b.grounded && b.ground && b.ground.big && cpY > 2;
+      if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
         this.respawn(lp, false);
         audio.play('respawn');
         evs[k].landed = false;
@@ -829,6 +837,7 @@ class Game {
     lp.body.pos = pos;
     lp.body.vel = [0, 0, 0];
     lp.body.grounded = false;
+    releaseGrips(lp.body);
     if (toStart) this.best = 0;
   }
 

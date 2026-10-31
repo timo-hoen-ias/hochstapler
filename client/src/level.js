@@ -3,6 +3,8 @@
 // Akt 1 (sechs Abschnitte) ist von Hand gebaut, danach folgen erzeugte Abschnitte
 // mit steigender Schwierigkeit. Zwischenstopps speichern den Fortschritt.
 
+import { buildAct1 } from './act1.js';
+
 // Abschnitte von Akt 1 (handgebaut)
 const HANDMADE = [
   { name: 'Wareneingang', hall: 'Tor 1', fog: 0xf1c08a },
@@ -30,6 +32,8 @@ const THEMES = [
 ];
 
 export const GENERATED_SECTIONS = 36;
+// Akt 1 zieht weit nach links hinaus – der Start liegt deshalb rechts im Hof
+const START_X = 22;
 const SEED = 0x5eed1e;
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.LVLDEBUG;
 
@@ -84,13 +88,19 @@ export function buildLevel(opts = {}) {
   const signs = [];
   const zones = [];
   const path = []; // Reihenfolge der Kletterpunkte (für Validierung)
+  const hooks = [];
+  const ladders = [];
+  const props = []; // Modelle ohne Kollision (Kulisse)
+  const shortcuts = []; // Abkürzungen: [{ from, to, how }]
+  const hazards = []; // Laser und Stacheln
+  const plates = []; // Druckplatten
   const sections = [];
   const checkpoints = [];
 
   let sec = 0;
   let fwd = [0, -1];
   // "prev" ist der zuletzt platzierte Kletterpunkt (Box in Weltkoordinaten, Oberkante = top)
-  let prev = { min: [-1, -1, 5], max: [1, 0, 7] };
+  let prev = { min: [START_X - 1, -1, 5], max: [START_X + 1, 0, 7] };
   let containerColor = 0;
 
   // Für die Kollisionsprüfung beim Erzeugen: feste Teile und freizuhaltende Räume
@@ -120,13 +130,14 @@ export function buildLevel(opts = {}) {
   const worldSize = (a, l) => (fwd[0] !== 0 ? [a, l] : [l, a]);
 
   // Mittelpunkt neben prev in Richtung dir mit gegebenem Abstand (Kante zu Kante)
-  function placeNext(dir, gap, sx, sz) {
+  // off = seitlicher Versatz quer zur Richtung (gegen das Raster)
+  function placeNext(dir, gap, sx, sz, off = 0) {
     const [dx, dz] = dirVec(dir);
     const pcx = (prev.min[0] + prev.max[0]) / 2;
     const pcz = (prev.min[2] + prev.max[2]) / 2;
     const phx = (prev.max[0] - prev.min[0]) / 2;
     const phz = (prev.max[2] - prev.min[2]) / 2;
-    return [pcx + dx * (phx + gap + sx / 2), pcz + dz * (phz + gap + sz / 2)];
+    return [pcx + dx * (phx + gap + sx / 2) + -dz * off, pcz + dz * (phz + gap + sz / 2) + dx * off];
   }
 
   function defaultHeight(mat, top) {
@@ -159,7 +170,7 @@ export function buildLevel(opts = {}) {
   // Kandidat für einen statischen Kletterpunkt berechnen (noch nicht eingetragen)
   function candidate(dir, gap, dy, a, l, mat, opts = {}) {
     const [sx, sz] = worldSize(a, l);
-    const [cx, cz] = placeNext(dir, gap, sx, sz);
+    const [cx, cz] = placeNext(dir, gap, sx, sz, opts.off || 0);
     const top = prev.max[1] + dy;
     let h = opts.h ?? defaultHeight(mat, top);
     if (h === 'ground') h = top;
@@ -200,9 +211,10 @@ export function buildLevel(opts = {}) {
     const c = candidate(dir, gap, dy, a, l, mat, opts);
     const b = box(c.min, c.max, pickMat(mat), opts.extra);
     if (opts.belt) b.belt = opts.belt;
-    if (mat === 'beam' || mat === 'grate' || mat === 'blink' || mat === 'checkpoint' || mat === 'ice' || mat === 'bin' || mat === 'fan') supports(b);
+    if (opts.model) b.model = opts.model;
+    if (mat === 'beam' || mat === 'grate' || mat === 'blink' || mat === 'checkpoint' || mat === 'ice' || mat === 'bin' || mat === 'fan' || opts.supports) supports(b);
     commitStatic(b, prev);
-    path.push({ box: b, kind: 'static' });
+    path.push({ box: b, kind: 'static', how: opts.how });
     prev = b;
     return b;
   }
@@ -273,10 +285,149 @@ export function buildLevel(opts = {}) {
     movers.push(m);
     solids.push(c.sweep);
     clears.push(...clearVolumes(c.sweep, prev));
-    path.push({ box: c.base, kind, mover: m });
+    if (opts.model) m.model = opts.model;
+    path.push({ box: c.base, kind, mover: m, how: opts.how });
     prev = c.end;
     return m;
   }
+
+  // ───── Neue Bausteine ─────
+  const center2 = (b) => [(b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2];
+
+  // Schräge entlang dir: dy = Höhe des nahen Endes über prev, drop = wie viel tiefer das ferne Ende liegt
+  // (negativ = steigt an). slide: Rutsche, auf der man nicht stehen bleibt.
+  const alongSize = (dir, len, w) => (dir === 'f' || dir === 'b' ? worldSize(len, w) : worldSize(w, len));
+  function ramp(dir, gap, dy, len, w, drop, opts = {}) {
+    const [sx, sz] = alongSize(dir, len, w);
+    const [cx, cz] = placeNext(dir, gap, sx, sz, opts.off || 0);
+    const near = prev.max[1] + dy, far = near - drop;
+    const th = opts.th ?? 0.3;
+    const b = box([cx - sx / 2, Math.min(near, far) - th, cz - sz / 2], [cx + sx / 2, Math.max(near, far), cz + sz / 2], opts.mat || (opts.slide ? 'chute' : 'ramp'));
+    const [dx, dz] = dirVec(dir);
+    const axis = dx !== 0 ? 0 : 2;
+    const sgn = dx !== 0 ? dx : dz; // Laufrichtung in Weltachse
+    // ramp.dir: +1 = steigt in positiver Weltachse
+    b.ramp = { axis, dir: (far > near ? 1 : -1) * sgn, y0: Math.min(near, far), near, slide: !!opts.slide };
+    b.model = opts.slide ? 'chute' : 'ramp';
+    supports(b);
+    solids.push(b);
+    path.push({ box: b, kind: 'static', how: opts.how || (opts.slide ? 'slide' : undefined), special: opts.slide ? 'slide' : 'ramp' });
+    // Für die nächste Platzierung zählt das ferne Ende
+    const e = 0.6;
+    const end = { min: [...b.min], max: [...b.max] };
+    if (axis === 0) { if (sgn > 0) end.min[0] = b.max[0] - e; else end.max[0] = b.min[0] + e; }
+    else { if (sgn > 0) end.min[2] = b.max[2] - e; else end.max[2] = b.min[2] + e; }
+    end.max[1] = far;
+    prev = end;
+    return b;
+  }
+
+  // Liegendes Rohr / Fass / Kabeltrommel entlang dir. dy bezieht sich auf die Oberkante.
+  function pipe(dir, gap, dy, len, r, opts = {}) {
+    const [sx, sz] = alongSize(dir, len, 2 * r);
+    const [cx, cz] = placeNext(dir, gap, sx, sz, opts.off || 0);
+    const top = prev.max[1] + dy;
+    const b = box([cx - sx / 2, top - 2 * r, cz - sz / 2], [cx + sx / 2, top, cz + sz / 2], opts.mat || 'pipe');
+    const [dx] = dirVec(dir);
+    const axis = dx !== 0 ? 0 : 2;
+    b.round = { axis, r, cy: top - r, cl: axis === 0 ? cz : cx };
+    b.model = opts.model || 'pipe';
+    if (opts.spin) {
+      // Drehende Trommel: Oberfläche läuft quer zur Achse
+      b.belt = axis === 0 ? [0, 0, opts.spin] : [opts.spin, 0, 0];
+      b.spin = opts.spin;
+    }
+    if (!opts.noSupports) supports(b);
+    solids.push(b);
+    path.push({ box: b, kind: 'static', how: opts.how, special: 'round' });
+    prev = b;
+    return b;
+  }
+
+  // Kranhaken: Griffpunkt gap Meter vor prev, Hände dy über prev. motion: { dist, period, dir }
+  function hook(dir, gap, dy, opts = {}) {
+    const [dx, dz] = dirVec(dir);
+    const [pcx, pcz] = center2(prev);
+    const hx = (prev.max[0] - prev.min[0]) / 2, hz = (prev.max[2] - prev.min[2]) / 2;
+    const off = opts.off || 0;
+    const gx = pcx + dx * (hx + gap) - dz * off, gz = pcz + dz * (hz + gap) + dx * off;
+    const gy = prev.max[1] + dy;
+    const len = opts.len ?? 2.2;
+    const h = { pivot: [gx, gy + len, gz], len, sec, index: hooks.length, along: [dx, dz] };
+    if (opts.motion) {
+      const [mx, mz] = dirVec(opts.motion.dir || dir);
+      h.motion = { kind: 'slide', delta: [mx * opts.motion.dist, 0, mz * opts.motion.dist], period: opts.motion.period, phase: opts.motion.phase ?? 0 };
+    }
+    h.rail = opts.rail;
+    hooks.push(h);
+    const feet = gy - 1.95;
+    const fb = { min: [gx - 0.3, feet - 0.1, gz - 0.3], max: [gx + 0.3, feet, gz + 0.3] };
+    if (h.motion) {
+      // für die nächste Platzierung: Endpunkt der Fahrt
+      for (let i = 0; i < 3; i++) { fb.min[i] += h.motion.delta[i]; fb.max[i] += h.motion.delta[i]; }
+    }
+    path.push({ box: fb, kind: 'hook', hook: h, how: 'hook' });
+    prev = fb;
+    return h;
+  }
+
+  // Block, an dessen prev zugewandter Seite eine Leiter steht (gap 0 = direkt anschließend)
+  function ladderUp(dir, gap, height, a, l, mat, opts = {}) {
+    const b = step(dir, gap, height, a, l, mat, { h: opts.h ?? height + 0.4, how: 'ladder', model: opts.model, off: opts.off });
+    const [dx, dz] = dirVec(dir);
+    const w = opts.w ?? 0.9;
+    const [cx, cz] = center2(b);
+    // Leiter auf der zugewandten Seite, seitlich versetzt möglich
+    const lo = opts.lo || 0;
+    const fx = -dx, fz = -dz; // zeigt von der Wand weg
+    const faceX = dx > 0 ? b.min[0] : dx < 0 ? b.max[0] : null;
+    const faceZ = dz > 0 ? b.min[2] : dz < 0 ? b.max[2] : null;
+    const y0 = b.max[1] - height - 0.05;
+    let min, max;
+    if (faceX !== null) {
+      const x0 = faceX + fx * 0.65;
+      min = [Math.min(faceX, x0), y0, cz - dx * lo - w / 2];
+      max = [Math.max(faceX, x0), b.max[1], cz - dx * lo + w / 2];
+    } else {
+      const z0 = faceZ + fz * 0.65;
+      min = [cx + dz * lo - w / 2, y0, Math.min(faceZ, z0)];
+      max = [cx + dz * lo + w / 2, b.max[1], Math.max(faceZ, z0)];
+    }
+    b.ladderBlock = true;
+    const lad = { min, max, face: [fx, fz], sec };
+    ladders.push(lad);
+    path[path.length - 1].ladder = lad;
+    return b;
+  }
+
+  // Windzone über einem Bereich { min, max }: push = Kraft (m/s²), gust = Böentakt
+  function wind(area, push, gust) {
+    zones.push({ min: area.min, max: area.max, push, gust, lift: 0, sec });
+  }
+  // Gefahrenbereich: kind = 'laser' | 'spikes'. timer { period, phase, on } = an im ersten Teil des Takts,
+  // plate = Druckplatte, die ihn abschaltet, motion = wandernder Laser { delta, period }
+  function hazard(kind, min, max, o = {}) {
+    const z = { kind, min, max, sec, ...o };
+    if (o.motion) z.motion = { kind: 'slide', phase: 0, ...o.motion };
+    hazards.push(z);
+    return z;
+  }
+  // Druckplatte auf der Oberseite von b (Mitte cx/cz, Größe s)
+  function plate(b, cx, cz, s = 1.1) {
+    const pl = { min: [cx - s / 2, b.max[1], cz - s / 2], max: [cx + s / 2, b.max[1] + 0.08, cz + s / 2], index: plates.length, sec };
+    plates.push(pl);
+    return pl.index;
+  }
+  // Rolltor (fest, solange keine der Platten gedrückt ist)
+  function gate(min, max, plateIds) {
+    const b = box(min, max, 'gate', { gate: plateIds, nogrip: true });
+    return b;
+  }
+  function prop(type, pos, o = {}) { props.push({ type, pos, ...o, sec }); }
+  function face(dir) { fwd = dirVec(dir); }
+  function here() { return prev; }
+  function setPrev(b) { prev = b; }
+  function shortcut(from, to, how) { shortcuts.push({ from, to, how }); }
 
   function section(info, dir, startY) {
     sec = sections.length;
@@ -309,111 +460,17 @@ export function buildLevel(opts = {}) {
   }
 
   // Start = Zwischenstopp 0
-  checkpoints.push({ index: 0, sec: 0, label: 'Tor 1', pos: [0, 0.05, 8], box: null });
+  checkpoints.push({ index: 0, sec: 0, label: 'Tor 1', pos: [START_X, 0.05, 8], box: null });
 
-  // ───────── Akt 1 · Abschnitt 1: Wareneingang ─────────
-  section(HANDMADE[0], [0, -1], 0);
-  step('f', 1.0, 1.0, 2, 3, 'goods', { h: 'ground' });
-  sign('TOR 1 · WARENEINGANG', 'Seil straff halten, gemeinsam springen');
-  step('f', 1.2, 1.1, 2, 2, 'crate', { h: 'ground' });
-  step('r', 1.4, 0.9, 1.6, 1.6, 'carton', { h: 'ground' });
-  step('f', 1.6, 1.0, 3, 2.4, 'goods', { h: 'ground' });
-  step('f', 1.0, 1.2, 7, 2.6, 'trailer', { h: 'ground' });
-  step('l', 1.8, 0.0, 1.2, 1.2, 'crate', { h: 'ground' });
-  step('f', 1.5, 1.1, 2, 2, 'goods', { h: 'ground' });
-  step('f', 2.0, 0.5, 1.4, 1.4, 'carton', { h: 'ground' });
-  step('r', 1.5, 1.2, 2.4, 2.4, 'goods', { h: 'ground' });
-  step('r', 1.2, 1.0, 1.2, 1.2, 'crate', { h: 'ground' });
-  step('f', 1.8, 1.1, 6, 2.6, 'container', { h: 'ground' });
-  step('f', 1.0, 1.2, 2, 2, 'goods', { h: 'ground' });
-
-  // ───────── Abschnitt 2: Hochregallager ─────────
-  section(HANDMADE[1], [-1, 0], prev.max[1]);
-  step('f', 1.5, 0.6, 3, 3, 'checkpoint');
-  markCheckpoint('Halle 2');
-  sign('HALLE 2 · HOCHREGALLAGER', 'Traversen sind schmal');
-  step('f', 1.2, 1.0, 3, 0.35, 'beam');
-  step('f', 1.6, 0.8, 3, 0.35, 'beam');
-  step('l', 1.4, 1.0, 2, 2, 'grate');
-  step('l', 1.8, 0.4, 0.35, 3, 'beam');
-  step('f', 1.5, 1.0, 2, 2, 'goods', { h: 1.0 });
-  step('f', 2.2, 0.2, 2.5, 0.3, 'beam');
-  step('r', 1.4, 1.1, 2, 2, 'grate');
-  step('r', 1.4, 1.1, 1.5, 1.5, 'crate');
-  step('f', 1.8, 0.6, 3, 0.3, 'beam');
-  step('f', 1.6, 1.0, 3, 0.3, 'beam');
-  step('l', 1.2, 1.2, 2, 2, 'grate');
-  step('f', 2.0, 0.8, 2.4, 2.4, 'goods', { h: 1.0 });
-
-  // ───────── Abschnitt 3: Fördertechnik ─────────
-  section(HANDMADE[2], [0, 1], prev.max[1]);
-  step('f', 1.5, 0.8, 3, 3, 'checkpoint');
-  markCheckpoint('Halle 3');
-  sign('HALLE 3 · FÖRDERTECHNIK', 'Bänder laufen immer');
-  step('f', 1.0, 0.6, 6, 1.4, 'belt', { belt: [0, 0, -2.5] });
-  step('f', 1.2, 1.0, 2, 2, 'crate');
-  step('r', 1.4, 0.5, 1.6, 6, 'belt', { belt: [0, 0, 2.2] });
-  step('r', 1.2, 1.0, 2, 2, 'goods', { h: 0.8 });
-  step('f', 1.0, 0.8, 6, 1.4, 'belt', { belt: [-3.0, 0, 0] });
-  step('f', 1.6, 1.1, 1.4, 1.4, 'crate');
-  step('f', 1.8, 0.4, 5, 1.4, 'belt', { belt: [0, 0, 4.0] });
-  step('f', 2.0, 0.6, 2, 2, 'grate');
-  step('l', 1.2, 1.2, 1.5, 1.5, 'crate');
-  step('l', 1.6, 1.0, 2, 5, 'belt', { belt: [0, 0, -2.4] });
-  step('f', 1.4, 1.0, 3, 3, 'grate');
-
-  // ───────── Abschnitt 4: Staplerzone ─────────
-  section(HANDMADE[3], [1, 0], prev.max[1]);
-  step('f', 1.5, 0.6, 3, 3, 'checkpoint');
-  markCheckpoint('Halle 4');
-  sign('HALLE 4 · STAPLERZONE', 'Gabeln heben – rechtzeitig aufsteigen');
-  mover('lift', 'f', 0.8, 2, 2, { range: 4, period: 7 });
-  step('f', 1.2, 0.5, 2, 2, 'grate');
-  mover('slide', 'f', 0.6, 2, 2, { dist: 6, period: 8 });
-  step('f', 1.0, 0.8, 2, 2, 'goods', { h: 0.9 });
-  step('r', 1.4, 1.0, 1.5, 1.5, 'crate');
-  mover('lift', 'r', 0.8, 2, 2, { range: 5, period: 8 });
-  step('f', 1.0, 0.4, 3, 0.35, 'beam');
-  mover('slide', 'f', 0.6, 2, 2, { dist: 7, period: 9 });
-  step('f', 1.2, 1.0, 2, 2, 'grate');
-  mover('lift', 'f', 0.8, 2, 2, { range: 4, period: 6 });
-  step('f', 1.2, 0.6, 3, 3, 'grate');
-
-  // ───────── Abschnitt 5: Containerhafen ─────────
-  section(HANDMADE[4], [0, -1], prev.max[1]);
-  step('f', 1.5, 0.8, 6, 2.4, 'container');
-  markCheckpoint('Kai 5');
-  sign('KAI 5 · CONTAINERHAFEN', 'Am Kranhaken hängen ist erlaubt');
-  step('f', 1.2, 1.0, 2.4, 6, 'container');
-  mover('swing', 'f', 0.6, 1.6, 1.6, { dist: 7, period: 7, h: 1.1 });
-  step('f', 0.8, 0.6, 6, 2.4, 'container');
-  step('l', 1.6, 1.2, 2.4, 2.4, 'crate', { h: 1.2 });
-  step('l', 1.4, 1.0, 2.4, 6, 'container');
-  mover('swing', 'f', 0.6, 1.6, 1.6, { dist: 8, period: 8, h: 1.1 });
-  step('f', 0.8, 0.5, 3, 3, 'grate');
-  step('r', 1.6, 1.1, 1.4, 1.4, 'crate');
-  step('r', 1.8, 0.8, 6, 2.4, 'container');
-  mover('lift', 'f', 0.8, 2, 2, { range: 5, period: 8, mat: 'lift' });
-  step('f', 1.2, 0.6, 4, 4, 'grate');
-
-  // ───────── Abschnitt 6: Versanddach ─────────
-  section(HANDMADE[5], [-1, 0], prev.max[1]);
-  step('f', 1.5, 0.6, 3, 3, 'checkpoint');
-  markCheckpoint('Dach');
-  sign('DACH · VERSAND', 'Ende von Akt 1 – es geht weiter nach oben');
-  step('f', 2.0, 0.8, 2.5, 0.3, 'beam');
-  step('l', 1.6, 1.1, 0.3, 2.5, 'beam');
-  step('f', 0.8, 0.6, 5, 1.2, 'belt', { belt: [0, 0, 3.0] });
-  step('f', 1.6, 1.1, 1.2, 1.2, 'crate');
-  mover('slide', 'r', 0.6, 1.6, 1.6, { dist: 6, period: 6 });
-  step('r', 1.0, 1.0, 1.2, 1.2, 'crate');
-  step('f', 2.2, 0.3, 2, 0.3, 'beam');
-  mover('lift', 'f', 0.8, 2, 2, { range: 6, period: 9 });
-  step('f', 1.4, 0.8, 1.2, 1.2, 'crate');
-  step('f', 1.8, 1.1, 1, 1, 'crate');
-  const roof = step('l', 1.6, 1.2, 7, 7, 'roof', { h: 0.6 });
-  markCheckpoint('Versanddach');
-  const landmarks = [{ kind: 'roof', pos: [(roof.min[0] + roof.max[0]) / 2, roof.max[1], (roof.min[2] + roof.max[2]) / 2] }];
+  // ───────── Akt 1: handgebaute Set-Pieces (act1.js) ─────────
+  const landmarks = [];
+  buildAct1({
+    HANDMADE, section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint,
+    face, here, setPrev, shortcut, dirVec, landmarks, hazard, plate, gate,
+    ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),
+    pathLength: () => path.length, pathBoxes: (from) => path.slice(from).map((p) => p.box),
+    get prev() { return prev; }, get fwd() { return fwd; },
+  });
 
   // ───────── Erzeugte Abschnitte ─────────
   const rnd = mulberry32(SEED);
@@ -587,7 +644,8 @@ export function buildLevel(opts = {}) {
 
   return {
     statics, movers, decor, signs, zones, path, sections, checkpoints, goal, landmarks,
-    spawn: [0, 0.05, 8],
+    hooks, ladders, props, shortcuts, hazards, plates,
+    spawn: [START_X, 0.05, 8],
     killY: -20,
   };
 }
