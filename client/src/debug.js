@@ -1,4 +1,4 @@
-// Debug-Konsole zum schnellen Testen der Level.
+// Debug-Konsole zum schnellen Testen der Level. Nur aktiv mit ?debug=timo in der URL (main.js).
 // Öffnen/Schließen: ^ (Taste links neben der 1) oder F8. Freiflug ein/aus: F9.
 // Befehle siehe HELP. Die Konsole ändert nur lokale Spieler dieses Geräts.
 import { releaseGrips } from './physics.js';

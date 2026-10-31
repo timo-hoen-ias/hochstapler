@@ -75,7 +75,7 @@ Stunden – das ist eine Schätzung, kein gemessener Wert.
 
 ## Debug-Konsole (Level testen)
 
-`^` (Taste links neben der 1, auf US-Tastaturen `` ` ``) oder `F8` öffnet die Konsole, `F9` schaltet den Freiflug direkt um.
+Nur verfügbar mit `?debug=timo` in der URL (z. B. `https://…/?debug=timo`). Dann öffnen `^` (Taste links neben der 1, auf US-Tastaturen `` ` ``) oder `F8` die Konsole, `F9` schaltet den Freiflug direkt um.
 Pfeil hoch/runter blättert durch frühere Befehle, `Esc` schließt.
 
 | Befehl | Wirkung |
