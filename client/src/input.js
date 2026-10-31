@@ -54,7 +54,7 @@ export class Input {
       if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.setDevice('kbm');
       const s = 0.0025 * settings.get().sensitivity;
       this.lookX -= e.movementX * s;
-      this.lookY += e.movementY * s * (settings.get().invertY ? -1 : 1);
+      this.lookY += e.movementY * s;
     });
     addEventListener('wheel', (e) => { if (this.enabled) this.zoom += Math.sign(e.deltaY) * 0.8; }, { passive: true });
   }
@@ -130,7 +130,7 @@ export class Input {
       if (!t.look || t.look.id !== e.pointerId || !this.enabled) return;
       const s = 0.006 * settings.get().sensitivity;
       this.lookX -= (e.clientX - t.look.x) * s;
-      this.lookY += (e.clientY - t.look.y) * s * (settings.get().invertY ? -1 : 1);
+      this.lookY += (e.clientY - t.look.y) * s;
       t.look.x = e.clientX; t.look.y = e.clientY;
     });
     const endLook = (e) => { if (t.look && t.look.id === e.pointerId) t.look = null; };

@@ -18,7 +18,7 @@ const OPTIONS = [
   { key: 'fov', label: 'Sichtfeld', type: 'range', min: 50, max: 90, step: 5, fmt: (v) => `${v}°` },
   { key: 'sensitivity', label: 'Maus-/Touch-Empfindlichkeit', type: 'range', min: 0.3, max: 2.5, step: 0.1, fmt: (v) => `${v.toFixed(1)}×` },
   { key: 'padSensitivity', label: 'Controller-Empfindlichkeit', type: 'range', min: 0.3, max: 2.5, step: 0.1, fmt: (v) => `${v.toFixed(1)}×` },
-  { key: 'invertY', label: 'Kamera vertikal invertieren', type: 'toggle' },
+  { key: 'invertY', label: 'Controller: Kamera vertikal invertieren', type: 'toggle' },
   { key: 'touch', label: 'Touch-Steuerung', type: 'choice', choices: [['auto', 'Automatisch'], ['on', 'An'], ['off', 'Aus']] },
   { key: 'hints', label: 'Tastenhinweise einblenden', type: 'toggle' },
   { key: 'shake', label: 'Kamerawackeln', type: 'toggle' },
