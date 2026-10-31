@@ -64,6 +64,7 @@ const menu = new Menu({
   // Spielmodus (nur Gastgeber): Seil für alle ↔ 2 gegen 2, Teams neu auslosen
   mode: () => game?.toggleMode(),
   shuffle: () => game?.requestMode('teams', true),
+  randomRoom: () => randomCode(),
   screen: (cur) => (cur === 'local' ? lobby.open() : lobby.close()),
   quit: () => {
     const url = new URL(location.href);

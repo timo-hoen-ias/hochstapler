@@ -104,10 +104,10 @@
       <div class="card ticket">
         <div class="ticket-head"><span>LIEFERSCHEIN</span><span class="ticket-no">Nr. <b id="ticket-room">----</b></span></div>
         <p id="invite" class="invite hidden"></p>
-        <label>Dein Name
+        <label>Dein Name <span class="pad-tip">Ⓐ Bildschirmtastatur</span>
           <input id="name" maxlength="16" placeholder="z. B. Timo" autocomplete="off" enterkeyhint="go" />
         </label>
-        <label>Raumcode
+        <label>Raumcode <span class="pad-tip">Ⓐ Tastatur · Neu = Zufallscode</span>
           <div class="row">
             <input id="room" maxlength="12" placeholder="ABCD" autocomplete="off" autocapitalize="characters" enterkeyhint="go" />
             <button id="newroom" class="ghost" type="button">Neu</button>
@@ -139,7 +139,7 @@
       <button class="ghost wide" type="button" data-act="copylink">Einladungslink kopieren</button>
       <div class="mode-box">
         <h3>Spielmodus</h3>
-        <button id="mode-btn" class="ghost wide" type="button" data-act="mode">◀ Alle an einem Seil ▶</button>
+        <button id="mode-btn" class="ghost wide" type="button" data-act="mode" data-lr>◀ Alle an einem Seil ▶</button>
         <button id="shuffle-btn" class="ghost wide hidden" type="button" data-act="shuffle">Teams neu auslosen (Rennen neu starten)</button>
         <p id="mode-note" class="small"></p>
       </div>
