@@ -572,8 +572,8 @@ export class Renderer {
       const frame = new THREE.Mesh(new THREE.BoxGeometry(3.7, 1.2, 0.06), this.mats.upright);
       board.add(front, back, frame);
       this.scene.add(board);
-      const post = this.addDecorBox([s.pos[0] - 0.06, s.pos[1] - 2.6, s.pos[2] - 0.06], [s.pos[0] + 0.06, s.pos[1] - 0.55, s.pos[2] + 0.06], this.mats.upright);
-      post.castShadow = false;
+      // Ausleger an der Plattform, auf dem die Tafel steht
+      if (s.mount) this.addDecorBox(s.mount.min, s.mount.max, this.mats.upright).castShadow = false;
     }
   }
 

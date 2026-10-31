@@ -235,6 +235,20 @@ export function buildLevel(opts = {}) {
         }
       }
     }
+    // Lauf- und Kopfräume aller Kletterpunkte (Spieler ≈ 0,35 m breit, 2 m hoch)
+    const headGrid = new Map();
+    for (const p of path) {
+      const pb = p.box;
+      if (!pb) continue;
+      const h = { min: [pb.min[0] - 0.35, pb.max[1] + 0.02, pb.min[2] - 0.35], max: [pb.max[0] + 0.35, pb.max[1] + 2.1, pb.max[2] + 0.35], box: pb };
+      for (let x = Math.floor(h.min[0] / cell); x <= Math.floor(h.max[0] / cell); x++) {
+        for (let z = Math.floor(h.min[2] / cell); z <= Math.floor(h.max[2] / cell); z++) {
+          const k = key(x, z);
+          if (!headGrid.has(k)) headGrid.set(k, []);
+          headGrid.get(k).push(h);
+        }
+      }
+    }
     for (const b of supported) {
       const xs = [b.min[0] + t / 2, b.max[0] - t / 2];
       const zs = [b.min[2] + t / 2, b.max[2] - t / 2];
@@ -246,7 +260,13 @@ export function buildLevel(opts = {}) {
         }
         // Nur kurze Stützen – lange Stangen durch den ganzen Turm verdecken die Sicht
         const len = b.min[1] - y0;
-        if (len > 0.05 && len <= 8) deco([x - t / 2, y0, z - t / 2], [x + t / 2, b.min[1], z + t / 2], 'upright');
+        if (len <= 0.05 || len > 8) continue;
+        // Keine Stütze durch den Lauf- und Kopfraum einer anderen Plattform: dort
+        // liefe man sonst durch eine Stange, die keine Kollision hat.
+        const col = { min: [x - t / 2, y0, z - t / 2], max: [x + t / 2, b.min[1], z + t / 2] };
+        const blocked = (headGrid.get(key(Math.floor(x / cell), Math.floor(z / cell))) || [])
+          .some((h) => h.box !== b && inter(col, h));
+        if (!blocked) deco(col.min, col.max, 'upright');
       }
     }
   }
@@ -462,7 +482,66 @@ export function buildLevel(opts = {}) {
       text, sub,
       pos: [cx + rx * (hx + 0.4), prev.max[1] + 2.6, cz + rz * (hz + 0.4)],
       face: [-fwd[0], -fwd[1]],
+      anchor: prev, right: [rx, rz],
     });
+  }
+
+  // Schilder erst am Ende setzen, wenn alle Kletterpunkte, Sprungräume und Stützen
+  // feststehen: Tafel seitlich an der Plattform auf einem Ausleger, ganz außerhalb
+  // der Lauffläche, der Kopf- und der Sprungräume. Passt keine Seite, entfällt das
+  // Schild (der Abschnittsname steht ohnehin im HUD).
+  function placeSigns() {
+    const W = 1.85, T = 0.06, H = 1.1;
+    const blockers = [...solids, ...decor, ...clears, ...corridors, ...hazards, ...ladders, ...waters]
+      .filter((o) => o && o.min && o.max);
+    for (const m of movers) {
+      if (!m.base) continue;
+      const d = m.delta || [0, 0, 0];
+      blockers.push({
+        min: [0, 1, 2].map((i) => Math.min(m.base.min[i], m.base.min[i] + d[i]) - 0.3),
+        max: [0, 1, 2].map((i) => Math.max(m.base.max[i], m.base.max[i] + d[i]) + 0.3),
+      });
+    }
+    for (const h of hooks) {
+      const d = h.motion?.delta || [0, 0, 0], p = h.pivot;
+      blockers.push({
+        min: [Math.min(p[0], p[0] + d[0]) - 1.6, p[1] - h.len - 3.5, Math.min(p[2], p[2] + d[2]) - 1.6],
+        max: [Math.max(p[0], p[0] + d[0]) + 1.6, p[1] + 0.5, Math.max(p[2], p[2] + d[2]) + 1.6],
+      });
+    }
+    const out = [];
+    for (const sg of signs) {
+      const a = sg.anchor;
+      const cx = (a.min[0] + a.max[0]) / 2, cz = (a.min[2] + a.max[2]) / 2;
+      const hx = (a.max[0] - a.min[0]) / 2, hz = (a.max[2] - a.min[2]) / 2;
+      const top = a.max[1];
+      let placed = null;
+      for (const [side, low] of [[1, 0], [-1, 0], [1, 1], [-1, 1]]) {
+        const [sx, sz] = [sg.right[0] * side, sg.right[1] * side];
+        const edge = Math.abs(sx) * hx + Math.abs(sz) * hz; // Abstand Mitte → Seitenfläche
+        const off = edge + 0.45 + W; // Tafelmitte
+        const bx = cx + sx * off, bz = cz + sz * off;
+        // Tafel quer zur Blickrichtung, also entlang der Seitenachse
+        const ax = Math.abs(sx) * W + Math.abs(sz) * T, az = Math.abs(sz) * W + Math.abs(sx) * T;
+        // oben: Tafel steht auf dem Ausleger; unten: hängt darunter wie ein Schild am Geländer
+        const by0 = low ? top - 0.16 - H - 0.1 : top + 0.05;
+        const board = { min: [bx - ax, by0, bz - az], max: [bx + ax, by0 + H + 0.1, bz + az] };
+        const fx = cx + sx * edge, fz = cz + sz * edge; // Seitenfläche
+        const far = { x: cx + sx * (off + W), z: cz + sz * (off + W) };
+        const arm = {
+          min: [Math.min(fx, far.x) - (sx ? 0 : 0.06), top - 0.14, Math.min(fz, far.z) - (sz ? 0 : 0.06)],
+          max: [Math.max(fx, far.x) + (sx ? 0 : 0.06), top + 0.02, Math.max(fz, far.z) + (sz ? 0 : 0.06)],
+        };
+        const room = { min: board.min.map((v) => v - 0.15), max: board.max.map((v) => v + 0.15) };
+        if (!inBounds(room)) continue;
+        if (blockers.some((o) => o !== a && inter(room, o))) continue;
+        placed = { text: sg.text, sub: sg.sub, pos: [bx, by0 + 0.05 + H / 2, bz], face: sg.face, mount: arm };
+        break;
+      }
+      if (placed) out.push(placed);
+    }
+    signs.length = 0;
+    signs.push(...out);
   }
 
   // Den zuletzt gesetzten Kletterpunkt zum Zwischenstopp machen
@@ -690,6 +769,7 @@ export function buildLevel(opts = {}) {
   };
 
   buildSupports();
+  placeSigns();
 
   // Boden (großer Betonhof)
   statics.push({ min: [-70, -2, -70], max: [70, 0, 70], mat: 'ground', sec: 0, big: true });
