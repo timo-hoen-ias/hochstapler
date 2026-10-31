@@ -96,6 +96,7 @@
         <p class="tag">Bis zu vier Lageristen, ein Seil, ein Ziel: das Versanddach.</p>
         <nav class="title-nav">
           <button class="nav-btn" type="button" data-focus="name"><b>Schicht starten</b><small>Raum öffnen oder beitreten</small></button>
+          <button class="nav-btn" type="button" data-go="local"><b>Lokal mitspielen</b><small>mehrere Controller, ein Bildschirm</small></button>
           <button id="solo" class="nav-btn" type="button"><b>Solo üben</b><small>ohne Server, allein am Seil</small></button>
           <button class="nav-btn" type="button" data-go="options"><b>Optionen</b><small>Grafik, Steuerung, Ton, Tastenbelegung</small></button>
         </nav>
@@ -118,6 +119,17 @@
         <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit, wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt: mit demselben Raumcode geht es später weiter.</p>
       </div>
       <div class="title-foot"><span>Logistikzentrum Hochstapler · Schichtbeginn 17:45</span><span class="blink">● Rampe frei</span></div>
+    </section>
+
+    <section class="card screen hidden" data-screen="local">
+      <h2>Lokal mitspielen</h2>
+      <p class="small lead">Bis zu vier Lageristen an einem Bildschirm, jeder mit eigenem Controller. Die Kamera hält alle im Bild.</p>
+      <div id="local-slots" class="local-slots"></div>
+      <button id="local-kbm" class="ghost wide" type="button"></button>
+      <button id="local-offline" class="primary" type="button">Losklettern (nur dieses Gerät)</button>
+      <button id="local-online" class="ghost wide" type="button">Online im Raum</button>
+      <button class="link" type="button" data-act="back">Zurück</button>
+      <p class="small">Controller: <kbd>A</kbd> mitmachen · <kbd>B</kbd> aussteigen · <kbd>Start</kbd> losklettern · <kbd>Y</kbd> online. Online hängen sich eure lokalen Spieler zu den Freunden im Raum (zusammen max. 4). Auch mitten im Spiel kann ein neuer Controller mit <kbd>A</kbd> einsteigen.</p>
     </section>
 
     <section class="card screen hidden" data-screen="pause">
@@ -162,6 +174,7 @@
           <div><kbd>X</kbd> <kbd>Y</kbd> <kbd>LB</kbd> <span>Zurufe</span></div>
           <div><kbd>Steuerkreuz ↑↓</kbd> <span>Zoom</span></div>
           <div><kbd>Start</kbd> <span>Pause</span></div>
+          <div><kbd>A</kbd> an freiem Controller <span>lokal einsteigen</span></div>
         </div>
         <div class="ctl">
           <h3>Touch</h3>
