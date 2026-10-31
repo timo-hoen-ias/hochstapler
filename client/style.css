@@ -104,8 +104,9 @@ body[data-device="kbm"] #hints .h-kbm, body[data-device="pad"] #hints .h-pad { d
 .tbtn.down { background: rgba(242,192,20,0.85); color: #111; transform: scale(0.94); }
 .tbtn.jump { width: 84px; height: 84px; right: max(28px, env(safe-area-inset-right)); bottom: max(28px, env(safe-area-inset-bottom)); font-size: 36px; }
 .tbtn.brace { width: 66px; height: 66px; right: calc(max(28px, env(safe-area-inset-right)) + 100px); bottom: max(24px, env(safe-area-inset-bottom)); }
-.tbtn.pause { width: 44px; height: 44px; font-size: 14px; left: 50%; top: max(10px, env(safe-area-inset-top)); transform: translateX(-50%); }
+.tbtn.pause { width: 44px; height: 44px; font-size: 14px; left: calc(50% - 26px); top: max(10px, env(safe-area-inset-top)); transform: translateX(-50%); }
 .tbtn.pause.down { transform: translateX(-50%) scale(0.94); }
+.tbtn.reset { width: 44px; height: 44px; font-size: 22px; left: calc(50% + 4px); top: max(10px, env(safe-area-inset-top)); }
 .tbtn.small { position: static; width: auto; height: 36px; border-radius: 18px; font-size: 13px; padding: 0 12px; font-weight: 700; }
 .tzoom { position: absolute; right: max(28px, env(safe-area-inset-right)); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 100px); display: flex; gap: 8px; }
 .tzoom .tbtn.small { width: 36px; padding: 0; font-size: 20px; }

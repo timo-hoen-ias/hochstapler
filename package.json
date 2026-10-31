@@ -8,7 +8,7 @@
     "build": "vite build",
     "dev:worker": "vite build && wrangler dev",
     "deploy": "vite build && wrangler deploy",
-    "validate": "node scripts/validate-level.mjs && node scripts/simulate-path.mjs && node scripts/test-jump-input.mjs && node scripts/test-hook-grab.mjs && node scripts/test-wind.mjs && node scripts/test-teams.mjs && node scripts/test-anim.mjs"
+    "validate": "node scripts/validate-level.mjs && node scripts/simulate-path.mjs && node scripts/test-jump-input.mjs && node scripts/test-hook-grab.mjs && node scripts/test-wind.mjs && node scripts/test-reset.mjs && node scripts/test-teams.mjs && node scripts/test-anim.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"
