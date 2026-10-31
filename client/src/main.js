@@ -189,8 +189,8 @@ class Game {
     });
 
     this.bindInput(local);
-    // Debug-Konsole: ^ oder F8 (Teleport, Freiflug, Gott-Modus)
-    this.debug = new DebugConsole(this);
+    // Debug-Konsole: ^ oder F8 (Teleport, Freiflug, Gott-Modus), nur mit ?debug=timo in der URL
+    this.debug = params.get('debug') === 'timo' ? new DebugConsole(this) : null;
     for (const e of local?.extra || []) this.addLocal(e.pad, e.name, false);
     this.world.update(this.net.time());
     requestAnimationFrame(() => this.frame());
@@ -655,6 +655,7 @@ class Game {
   async copyLink() {
     const url = new URL(location.href);
     url.searchParams.set('room', this.room);
+    url.searchParams.delete('debug'); // Debug-Zugang nicht mit der Einladung weitergeben
     try {
       if (navigator.share && settings.touchEnabled()) await navigator.share({ title: 'Hochstapler', text: `Kletter mit mir in Raum ${this.room}!`, url: url.toString() });
       else { await navigator.clipboard.writeText(url.toString()); this.toast('Einladungslink kopiert'); }
