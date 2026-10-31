@@ -950,7 +950,6 @@ class Game {
     } else {
       $('hud-players').innerHTML = rows.map(row).join('');
     }
-    $('tension').classList.toggle('hidden', this.tension < 1.001);
     $('brace').classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
   }
 

@@ -38,8 +38,7 @@ kbd { background: rgba(255,255,255,0.12); border-radius: 4px; padding: 1px 6px; 
 .pl { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 3px 0; }
 .pl i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 .pl b { margin-left: auto; font-variant-numeric: tabular-nums; opacity: 0.8; font-weight: 600; }
-#tension, #brace { position: absolute; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 6px; font-weight: 800; letter-spacing: 2px; font-size: 13px; }
-#tension { bottom: 90px; background: rgba(200,50,30,0.85); }
+#brace { position: absolute; left: 50%; transform: translateX(-50%); padding: 6px 14px; border-radius: 6px; font-weight: 800; letter-spacing: 2px; font-size: 13px; }
 #brace { bottom: 128px; background: rgba(242,192,20,0.9); color: #111; }
 #toasts { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .toast { background: var(--panel); padding: 8px 16px; border-radius: 8px; font-weight: 600; animation: fade 3.2s forwards; }
@@ -118,7 +117,6 @@ body.touch-ui #hud-height { font-size: 22px; }
 body.touch-ui #hud-best { display: none; }
 body.touch-ui #hud-right { top: max(10px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); padding: 6px 10px; min-width: 0; font-size: 12px; }
 body.touch-ui #hud-right .pl { font-size: 12px; margin: 1px 0; }
-body.touch-ui #tension { bottom: auto; top: 30%; }
 body.touch-ui #brace { bottom: auto; top: calc(30% + 36px); }
 
 @media (max-width: 640px) {
