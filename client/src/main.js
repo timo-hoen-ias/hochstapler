@@ -771,7 +771,6 @@ class Game {
     for (const r of this.remotes.values()) rows.push({ name: r.name, color: r.color, y: r.rpos[1], slot: r.slot });
     rows.sort((a, b) => a.slot - b.slot);
     $('hud-players').innerHTML = rows.map((r) => `<div class="pl"><i style="background:${r.color}"></i>${esc(r.name)}<b>${Math.max(0, r.y).toFixed(0)} m</b></div>`).join('');
-    $('tension').classList.toggle('hidden', this.tension < 1.001);
     $('brace').classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
   }
 
