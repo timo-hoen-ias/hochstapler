@@ -235,7 +235,9 @@ export function buildHooks(scene, level, M) {
       // Beine an beiden Enden
       for (const end of [a0, a1]) for (const s of [-1, 1]) {
         const x = end[0] + lat[0] * s * 3.2, z = end[1] + lat[1] * s * 3.2;
-        batch.add(M.crane, bx([x - 0.45, 0, z - 0.45], [x + 0.45, y + 1.1, z + 0.45]));
+        // Unten im Hof stehen Beine auf dem Boden, weiter oben hängt die Bahn an Zugstangen
+        if (y < 14) batch.add(M.crane, bx([x - 0.45, 0, z - 0.45], [x + 0.45, y + 1.1, z + 0.45]));
+        else batch.add(M.chain, rod([x, y + 1.2, z], [end[0], y + 7, end[1]], 0.06, 5));
       }
       for (const end of [a0, a1]) {
         // Querriegel
