@@ -31,6 +31,13 @@ Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln, Lautstärke
 Lichtstrahlen (Godrays), Tiefenunschärfe, Distanznebel (leicht/normal/dicht) und Höhennebel.
 Einstellungen werden im Browser gespeichert.
 
+## Lokaler Koop (mehrere Controller an einem Bildschirm)
+
+- Hauptmenü → **Lokal mitspielen**: Jeder Controller, an dem jemand **A** drückt, wird ein eigener Lagerist (bis zu vier). Der erste Controller gehört Spieler 1, der zusätzlich Tastatur & Maus nutzen kann; auf Wunsch spielt die Tastatur als eigener Spieler.
+- **Start** klettert nur an diesem Gerät los, **Y** geht online in den Raum aus dem Hauptmenü. Online hat jeder lokale Spieler eine eigene Verbindung zum Raum – für Server und Freunde sind es ganz normale Mitspieler (zusammen max. 4).
+- Auch mitten im Spiel kann ein freier Controller mit **A** oder **Start** einsteigen; wird ein Controller abgezogen, seilt sich sein Spieler ab.
+- Gemeinsame Kamera statt geteiltem Bildschirm: Das Seil hält alle auf wenigen Metern, darum zielt die Kamera auf die Mitte der lokalen Spieler und fährt weiter zurück, je weiter sie auseinander sind. Alle dürfen sie mit dem rechten Stick drehen.
+
 ## Aufbau des Turms (~1090 m, 42 Abschnitte)
 
 **Akt 1 – von Hand gebaut** (bis ~77 m, zum Reinkommen):

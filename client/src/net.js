@@ -51,6 +51,14 @@ export class Net {
     ws.onerror = () => {};
   }
 
+  // Absichtlich trennen (lokaler Mitspieler steigt aus): kein Offline-Hinweis
+  close() {
+    this.closed = true;
+    clearInterval(this.pingTimer);
+    if (this.ws) { this.ws.onclose = null; try { this.ws.close(); } catch { /* egal */ } }
+    this.online = false;
+  }
+
   send(m) {
     if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
   }

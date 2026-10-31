@@ -66,6 +66,7 @@ export class Menu {
     const cur = this.current();
     for (const s of this.root.querySelectorAll('.screen')) s.classList.toggle('hidden', s.dataset.screen !== cur);
     this.root.classList.toggle('in-game', this.stack[0] === 'pause');
+    this.h.screen?.(cur);
     // Fokus für Tastatur/Controller auf das erste sinnvolle Element
     const first = this.focusables()[0];
     if (first && document.body.dataset.device !== 'touch' && cur !== 'main') first.focus({ preventScroll: true });
@@ -203,9 +204,16 @@ export class Menu {
 
   padLoop() {
     requestAnimationFrame(() => this.padLoop());
-    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const gp = [...pads].find((p) => p && p.connected);
-    if (!gp) return;
+    // Alle Controller dürfen die Menüs bedienen (lokaler Koop): Zustände zusammenfassen
+    const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter((p) => p && p.connected);
+    if (!pads.length) return;
+    const n = Math.max(...pads.map((p) => p.buttons.length));
+    const gp = {
+      buttons: Array.from({ length: n }, (_, i) => ({ pressed: pads.some((p) => p.buttons[i]?.pressed) })),
+      axes: [0, 1].map((i) => pads.reduce((m, p) => (Math.abs(p.axes[i] || 0) > Math.abs(m) ? p.axes[i] : m), 0)),
+    };
+    // Die Lobby für lokalen Koop wertet jeden Controller einzeln aus
+    if (this.isOpen() && this.current() === 'local') { this.pad.prev = gp.buttons.map((b) => b.pressed); return; }
     const pressed = (i) => gp.buttons[i]?.pressed && !this.pad.prev[i];
     const scope = this.activeOverlay();
     if (scope) {

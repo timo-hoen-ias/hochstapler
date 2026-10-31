@@ -32,8 +32,20 @@
         <button class="ghost" type="button" data-go="options">Optionen</button>
         <button class="ghost" type="button" data-go="controls">Steuerung</button>
       </div>
+      <button class="ghost wide" type="button" data-go="local">Lokal mitspielen (mehrere Controller)</button>
       <button id="solo" class="link" type="button">Solo üben (ohne Server)</button>
       <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt im Raum: mit demselben Raumcode geht es später weiter.</p>
+    </section>
+
+    <section class="card screen hidden" data-screen="local">
+      <h2>Lokal mitspielen</h2>
+      <p class="small lead">Bis zu vier Lageristen an einem Bildschirm, jeder mit eigenem Controller. Die Kamera hält alle im Bild.</p>
+      <div id="local-slots" class="local-slots"></div>
+      <button id="local-kbm" class="ghost wide" type="button"></button>
+      <button id="local-offline" class="primary" type="button">Losklettern (nur dieses Gerät)</button>
+      <button id="local-online" class="ghost wide" type="button">Online im Raum</button>
+      <button class="link" type="button" data-act="back">Zurück</button>
+      <p class="small">Controller: <kbd>A</kbd> mitmachen · <kbd>B</kbd> aussteigen · <kbd>Start</kbd> losklettern · <kbd>Y</kbd> online. Online hängen sich eure lokalen Spieler zu den Freunden im Raum (zusammen max. 4). Auch mitten im Spiel kann ein neuer Controller mit <kbd>A</kbd> einsteigen.</p>
     </section>
 
     <section class="card screen hidden" data-screen="pause">
@@ -81,6 +93,7 @@
           <div><kbd>X</kbd> <kbd>Y</kbd> <kbd>LB</kbd> <span>Zurufe</span></div>
           <div><kbd>Steuerkreuz ↑↓</kbd> <span>Zoom</span></div>
           <div><kbd>Start</kbd> <span>Pause</span></div>
+          <div><kbd>A</kbd> an freiem Controller <span>lokal einsteigen</span></div>
         </div>
         <div class="ctl">
           <h3>Touch</h3>
