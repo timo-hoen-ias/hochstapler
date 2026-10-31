@@ -38,6 +38,23 @@ export function modelMaterials(tex, mats) {
     skylight: std({ color: 0x9ab7cc, metalness: 0.2, roughness: 0.1, emissive: 0x334455, emissiveIntensity: 0.4 }),
     vent: std({ color: 0x9aa4ab, metalness: 0.8, roughness: 0.3 }),
     containerMat: std({ map: tex.container, bumpMap: tex.container, bumpScale: 3, metalness: 0.45, roughness: 0.5 }),
+    iceslide: std({ color: 0xcfe9ff, metalness: 0.2, roughness: 0.05, transparent: true, opacity: 0.85 }),
+    cable: std({ color: 0x2d2d2d, roughness: 0.85 }),
+    frostGoods: std({ color: 0xe6f2fb, roughness: 0.6 }),
+    frostRack: std({ color: 0x9fc3dd, metalness: 0.5, roughness: 0.4 }),
+    panel: std({ color: 0xeef1f3, metalness: 0.15, roughness: 0.55 }),
+    panelSeam: std({ color: 0xb4bcc4, metalness: 0.3, roughness: 0.5 }),
+    coolFan: std({ color: 0x5e6b75, metalness: 0.7, roughness: 0.35 }),
+    concrete: std({ color: 0xb9b6ae, roughness: 0.92 }),
+    siloBand: std({ color: 0x6b6f73, metalness: 0.5, roughness: 0.5 }),
+    tankWhite: std({ color: 0xe9ecee, metalness: 0.35, roughness: 0.35 }),
+    tankYellow: std({ color: 0xe2c23a, metalness: 0.3, roughness: 0.45 }),
+    tankGreen: std({ color: 0x5f8f4e, metalness: 0.3, roughness: 0.5 }),
+    pipeRed: std({ color: 0xb33a2c, metalness: 0.5, roughness: 0.45 }),
+    rail: std({ color: 0x5b4f45, metalness: 0.7, roughness: 0.5 }),
+    wagonRed: std({ color: 0x8c3b2a, metalness: 0.35, roughness: 0.6 }),
+    wagonBlue: std({ color: 0x2f5d8a, metalness: 0.35, roughness: 0.6 }),
+    weight: std({ color: 0x8d8c88, roughness: 0.9 }),
     wind: new THREE.MeshBasicMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide }),
   };
 }
@@ -54,6 +71,17 @@ function cyl(axis, c, r, len, seg = 18, r2 = r) {
   if (axis === 0) g.rotateZ(Math.PI / 2);
   if (axis === 2) g.rotateX(Math.PI / 2);
   g.translate(c[0], c[1], c[2]);
+  return g;
+}
+// Stab zwischen zwei Punkten
+const _rodUp = new THREE.Vector3(0, 1, 0);
+function rod(a, b, r, seg = 6) {
+  const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+  const d = vb.clone().sub(va);
+  const g = new THREE.CylinderGeometry(r, r, d.length(), seg);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(_rodUp, d.clone().normalize()));
+  const m = va.add(vb).multiplyScalar(0.5);
+  g.translate(m.x, m.y, m.z);
   return g;
 }
 // Box, deren Ober- und Unterseite der Schräge folgen
@@ -279,17 +307,18 @@ export function buildScenery(scene, level, M) {
       const [x0, z0] = p.from, [x1, z1] = p.to;
       const len = Math.hypot(x1 - x0, z1 - z0);
       const ux = (x1 - x0) / len, uz = (z1 - z0) / len;
-      const depth = 1.1, h = p.height;
+      const depth = 1.1, h = p.height, y0 = p.base || 0;
+      const up = p.frost ? M.frostRack : M.rackUpright, gd = p.frost ? M.frostGoods : M.goods;
       const n = Math.max(1, Math.round(len / 2.7));
       const nx = -uz, nz = ux;
       for (let i = 0; i <= n; i++) {
         const cx = x0 + ux * (len * i / n), cz = z0 + uz * (len * i / n);
         for (const s of [0, 1]) {
           const px = cx + nx * depth * s, pz = cz + nz * depth * s;
-          batch.add(M.rackUpright, bx([px - 0.05, 0, pz - 0.05], [px + 0.05, h, pz + 0.05]));
+          batch.add(up, bx([px - 0.05, y0, pz - 0.05], [px + 0.05, y0 + h, pz + 0.05]));
         }
       }
-      for (let y = 1.8; y < h; y += 1.8) {
+      for (let y = y0 + 1.8; y < y0 + h; y += 1.8) {
         for (const s of [0, 1]) {
           const ox = nx * depth * s, oz = nz * depth * s;
           batch.add(M.rackBeam, bx([Math.min(x0, x1) + ox - 0.05, y - 0.12, Math.min(z0, z1) + oz - 0.05], [Math.max(x0, x1) + ox + 0.05, y, Math.max(z0, z1) + oz + 0.05]));
@@ -299,7 +328,7 @@ export function buildScenery(scene, level, M) {
           const cx = x0 + ux * (len * (i + 0.5) / n) + nx * depth / 2, cz = z0 + uz * (len * (i + 0.5) / n) + nz * depth / 2;
           const w = 1.0, hh = 0.8 + ((i + y) % 3) * 0.2;
           batch.add(M.pallet, bx([cx - w, y, cz - 0.5], [cx + w, y + 0.14, cz + 0.5]));
-          batch.add((i % 2) ? M.carton : M.goods, bx([cx - w + 0.08, y + 0.14, cz - 0.45], [cx + w - 0.08, y + 0.14 + hh, cz + 0.45]));
+          batch.add(p.frost ? gd : (i % 2) ? M.carton : M.goods, bx([cx - w + 0.08, y + 0.14, cz - 0.45], [cx + w - 0.08, y + 0.14 + hh, cz + 0.45]));
         }
       }
     } else if (p.type === 'truckcab') {
@@ -320,6 +349,162 @@ export function buildScenery(scene, level, M) {
     } else if (p.type === 'skylight') {
       const [x, y, z] = p.pos, [sx, sz] = p.size;
       batch.add(M.skylight, bx([x - sx / 2, y, z - sz / 2], [x + sx / 2, y + 0.25, z + sz / 2]));
+    } else if (p.type === 'panelwall') {
+      // Isolierpaneele (Kühlhaus): helle Wand mit Fugen
+      const [x0, z0] = p.a, [x1, z1] = p.b;
+      const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+      const lo = alongX ? Math.min(x0, x1) : Math.min(z0, z1), hi = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
+      const c = alongX ? z0 : x0;
+      const wall = (a0, a1, y0, y1, t, mat) => batch.add(mat, alongX ? bx([a0, y0, c - t], [a1, y1, c + t]) : bx([c - t, y0, a0], [c + t, y1, a1]));
+      wall(lo, hi, p.y0, p.y1, 0.2, M.panel);
+      for (let a = lo; a <= hi; a += 3) wall(a - 0.04, a + 0.04, p.y0, p.y1, 0.24, M.panelSeam);
+      for (let y = p.y0; y <= p.y1; y += 6) wall(lo, hi, y - 0.05, y + 0.05, 0.24, M.panelSeam);
+    } else if (p.type === 'coolunit') {
+      // Verdampfer unter der Decke: Kasten mit drei Lüftern
+      const [x, y, z] = p.pos;
+      batch.add(M.panel, bx([x - 0.6, y, z - 2.2], [x + 0.6, y + 1.1, z + 2.2]));
+      for (const dz of [-1.4, 0, 1.4]) batch.add(M.coolFan, cyl(0, [x - 0.62, y + 0.55, z + dz], 0.45, 0.06, 16));
+    } else if (p.type === 'spiral') {
+      // Wendelrutsche um einen Mast
+      const [x, z] = p.pos, r = p.r;
+      batch.add(M.rackUpright, cyl(1, [x, (p.y0 + p.y1) / 2, z], 0.25, p.y1 - p.y0, 10));
+      const steps = Math.floor((p.y1 - p.y0) / 0.25);
+      for (let i = 0; i < steps; i++) {
+        const a = i * 0.2, y = p.y0 + i * 0.25;
+        const cx = x + Math.cos(a) * r, cz = z + Math.sin(a) * r;
+        const g = bx([-0.7, -0.05, -0.45], [0.7, 0.05, 0.45]);
+        g.rotateY(-a); g.translate(cx, y, cz);
+        batch.add(M.chute, g);
+        const e = bx([0.64, 0, -0.46], [0.72, 0.35, 0.46]);
+        e.rotateY(-a); e.translate(cx, y, cz);
+        batch.add(M.chuteRail, e);
+      }
+    } else if (p.type === 'silo') {
+      // Betonsilo mit Ringen und Kegeldach
+      const [x, z] = p.pos, r = p.r;
+      const y0 = p.y0, y1 = p.y1 + 4;
+      batch.add(M.concrete, cyl(1, [x, (y0 + y1) / 2, z], r, y1 - y0, 32));
+      for (let y = y0 + 3; y < y1; y += 4.5) batch.add(M.siloBand, cyl(1, [x, y, z], r + 0.08, 0.35, 32));
+      batch.add(M.siloBand, cyl(1, [x, y1 + 1.2, z], 0.4, 2.4, 32, r + 0.2));
+      batch.add(M.vent, cyl(1, [x, y1 + 2.8, z], 0.8, 1.2, 12));
+    } else if (p.type === 'bridge') {
+      // Förderbrücke zwischen zwei Silos (Fachwerk mit Band)
+      const [x0, z0] = p.a, [x1, z1] = p.b, y = p.y;
+      for (const o of [-0.9, 0.9]) {
+        const n = [-(z1 - z0), x1 - x0], l = Math.hypot(...n); const ox = n[0] / l * o, oz = n[1] / l * o;
+        batch.add(M.rackBeam, rod([x0 + ox, y, z0 + oz], [x1 + ox, y, z1 + oz], 0.12));
+        batch.add(M.rackBeam, rod([x0 + ox, y + 1.6, z0 + oz], [x1 + ox, y + 1.6, z1 + oz], 0.1));
+        const len = Math.hypot(x1 - x0, z1 - z0), m = Math.floor(len / 2.5);
+        for (let i = 0; i < m; i++) {
+          const t0 = i / m, t1 = (i + 1) / m;
+          batch.add(M.rackBeam, rod([x0 + (x1 - x0) * t0 + ox, y, z0 + (z1 - z0) * t0 + oz], [x0 + (x1 - x0) * t1 + ox, y + 1.6, z0 + (z1 - z0) * t1 + oz], 0.06));
+        }
+      }
+      batch.add(M.siloBand, rod([x0, y + 0.1, z0], [x1, y + 0.1, z1], 0.5, 4));
+    } else if (p.type === 'tank') {
+      // Lagertank auf Stahlgestell mit Warnband
+      const [x, y, z] = p.pos, r = p.r, h = p.h;
+      const mat = [M.tankWhite, M.tankYellow, M.tankGreen][p.color || 0];
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) batch.add(M.flange, bx([x + dx * r * 0.6 - 0.12, y - 2.5, z + dz * r * 0.6 - 0.12], [x + dx * r * 0.6 + 0.12, y, z + dz * r * 0.6 + 0.12]));
+      batch.add(mat, cyl(1, [x, y + h / 2, z], r, h, 28));
+      batch.add(mat, cyl(1, [x, y + h + 0.5, z], 0.3, 1.0, 28, r));
+      batch.add(M.hazardBand || M.chuteRail, cyl(1, [x, y + h * 0.35, z], r + 0.04, 0.5, 28));
+      batch.add(M.flange, cyl(1, [x, y + h + 1.1, z], 0.25, 0.4, 10));
+    } else if (p.type === 'piperun') {
+      // Rohrtrasse an der Wand
+      const [x0, z0] = p.a, [x1, z1] = p.b;
+      const mats = [M.pipeRed, M.tankYellow, M.pipe, M.tankGreen];
+      const n = [-(z1 - z0), x1 - x0], l = Math.hypot(...n);
+      for (let i = 0; i < p.n; i++) {
+        const o = (i - (p.n - 1) / 2) * 0.7, ox = n[0] / l * o, oz = n[1] / l * o;
+        batch.add(mats[(i + Math.round(p.y)) % mats.length], rod([x0 + ox, p.y, z0 + oz], [x1 + ox, p.y, z1 + oz], 0.22, 12));
+      }
+      const len = Math.hypot(x1 - x0, z1 - z0);
+      for (let t = 0; t <= len; t += 6) {
+        const cx = x0 + (x1 - x0) * t / len, cz = z0 + (z1 - z0) * t / len;
+        batch.add(M.flange, bx([cx - 0.15 - Math.abs(n[0] / l) * 1.2, p.y - 0.35, cz - 0.15 - Math.abs(n[1] / l) * 1.2], [cx + 0.15 + Math.abs(n[0] / l) * 1.2, p.y - 0.25, cz + 0.15 + Math.abs(n[1] / l) * 1.2]));
+      }
+    } else if (p.type === 'gantry') {
+      // Portalkran: zwei Stützen, Träger, Laufkatze
+      const [x0, z0] = p.a, [x1, z1] = p.b, y = p.y;
+      for (const [x, z] of [[x0, z0], [x1, z1]]) {
+        batch.add(M.crane, bx([x - 0.5, y - 10, z - 0.5], [x + 0.5, y + 6, z + 0.5]));
+        batch.add(M.craneDark, bx([x - 1.4, y - 10.5, z - 1.4], [x + 1.4, y - 10, z + 1.4]));
+      }
+      batch.add(M.crane, rod([x0, y + 6.6, z0], [x1, y + 6.6, z1], 0.7, 4));
+      const mx = (x0 + x1) / 2 + 6, mz = (z0 + z1) / 2;
+      batch.add(M.craneDark, bx([mx - 1.2, y + 5.3, mz - 1.2], [mx + 1.2, y + 6.0, mz + 1.2]));
+      batch.add(M.chain, bx([mx - 0.04, y + 1.5, mz - 0.04], [mx + 0.04, y + 5.3, mz + 0.04]));
+      batch.add(M.containerMat, bx([mx - 3, y - 1.0, mz - 1.2], [mx + 3, y + 1.5, mz + 1.2]));
+    } else if (p.type === 'railbridge') {
+      // Hochgleis mit Waggons
+      const [x0, z0] = p.a, [x1, z1] = p.b, y = p.y;
+      const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+      const c = alongX ? z0 : x0, lo = alongX ? Math.min(x0, x1) : Math.min(z0, z1), hi = alongX ? Math.max(x0, x1) : Math.max(z0, z1);
+      const B = (a0, a1, y0, y1, l0, l1, mat) => batch.add(mat, alongX ? bx([a0, y0, c + l0], [a1, y1, c + l1]) : bx([c + l0, y0, a0], [c + l1, y1, a1]));
+      B(lo, hi, y - 0.8, y - 0.2, -2, 2, M.concrete);
+      for (const l of [-0.75, 0.75]) B(lo, hi, y - 0.2, y, l - 0.06, l + 0.06, M.rail);
+      for (let a = lo; a < hi; a += 0.9) B(a, a + 0.25, y - 0.25, y - 0.15, -1.1, 1.1, M.pallet);
+      for (let a = lo + 4; a < hi - 4; a += 14) B(a, a + 0.8, y - 14, y - 0.8, -0.8, 0.8, M.concrete);
+      for (let i = 0; i < p.wagons; i++) {
+        const a = lo + 6 + i * 11;
+        if (a + 10 > hi) break;
+        B(a, a + 10, y + 0.6, y + 3.4, -1.4, 1.4, i % 2 ? M.wagonRed : M.wagonBlue);
+        B(a + 0.3, a + 9.7, y + 3.4, y + 3.6, -1.2, 1.2, M.craneDark);
+        for (const w of [1.5, 8.5]) B(a + w - 0.5, a + w + 0.5, y, y + 0.7, -1.0, 1.0, M.forkDark);
+      }
+    } else if (p.type === 'mast') {
+      // Gittermast des Turmkrans vom Boden bis über das Ziel
+      const [x, z] = p.pos, s = 1.3;
+      const C = [[-s, -s], [s, -s], [s, s], [-s, s]];
+      for (const [dx, dz] of C) batch.add(M.crane, bx([x + dx - 0.12, 0, z + dz - 0.12], [x + dx + 0.12, p.top, z + dz + 0.12]));
+      for (let y = 0; y < p.top; y += 2.6) {
+        for (let i = 0; i < 4; i++) {
+          const [ax, az] = C[i], [bx2, bz] = C[(i + 1) % 4];
+          batch.add(M.crane, rod([x + ax, y, z + az], [x + bx2, y, z + bz], 0.06, 5));
+          batch.add(M.crane, rod([x + ax, y, z + az], [x + bx2, y + 2.6, z + bz], 0.05, 5));
+        }
+      }
+      batch.add(M.craneDark, bx([x - 2, -0.5, z - 2], [x + 2, 0.6, z + 2]));
+      batch.add(M.weight, bx([x - 3.2, 0, z - 3.2], [x + 3.2, 1.6, z + 3.2]));
+    } else if (p.type === 'jib') {
+      // Ausleger mit Laufkatze, Gegenausleger mit Gewicht, Führerhaus
+      const [x, z] = p.pos, [tx, tz] = p.to, y = p.y;
+      const d = [tx - x, tz - z], len = Math.hypot(...d), u = [d[0] / len, d[1] / len], n = [-u[1], u[0]];
+      const P = (a, l, yy) => [x + u[0] * a + n[0] * l, yy, z + u[1] * a + n[1] * l];
+      const w = 0.9;
+      for (const l of [-w, w]) batch.add(M.crane, rod(P(-p.back, l, y), P(len, l, y), 0.1, 5));
+      batch.add(M.crane, rod(P(-p.back, 0, y + 1.8), P(len, 0, y + 1.2), 0.09, 5));
+      for (let a = -p.back; a < len; a += 2.4) {
+        batch.add(M.crane, rod(P(a, -w, y), P(a, w, y), 0.05, 4));
+        for (const l of [-w, w]) batch.add(M.crane, rod(P(a, l, y), P(a + 1.2, 0, y + 1.8 - 0.6 * Math.max(0, a) / len), 0.05, 4));
+      }
+      batch.add(M.crane, rod(P(0, 0, y + 1.8), P(0, 0, y + 8), 0.25, 6));
+      for (const a of [len * 0.7, -p.back]) batch.add(M.chain, rod(P(0, 0, y + 8), P(a, 0, y + 1.5), 0.04, 4));
+      const wc = P(-p.back + 2, 0, y);
+      batch.add(M.weight, bx([wc[0] - 1.6, y - 2.8, wc[2] - 1.6], [wc[0] + 1.6, y, wc[2] + 1.6]));
+      const cab = P(1.6, 1.8, y);
+      batch.add(M.shuttle, bx([cab[0] - 1, y - 2.4, cab[2] - 1], [cab[0] + 1, y - 0.2, cab[2] + 1]));
+      batch.add(M.glass, bx([cab[0] - 1.05, y - 1.6, cab[2] - 1.05], [cab[0] + 1.05, y - 0.7, cab[2] + 1.05]));
+      const kat = P(len * 0.55, 0, y);
+      batch.add(M.craneDark, bx([kat[0] - 0.8, y - 0.6, kat[2] - 0.8], [kat[0] + 0.8, y, kat[2] + 0.8]));
+      batch.add(M.chain, bx([kat[0] - 0.03, y - 9, kat[2] - 0.03], [kat[0] + 0.03, y - 0.6, kat[2] + 0.03]));
+      batch.add(M.crane, bx([kat[0] - 0.4, y - 9.6, kat[2] - 0.4], [kat[0] + 0.4, y - 9, kat[2] + 0.4]));
+      // Warnleuchte ganz oben
+      batch.add(M.lampRed || M.chuteRail, cyl(1, [x, y + 8.4, z], 0.2, 0.4, 8));
+    } else if (p.type === 'scaffold') {
+      // Baugerüst: Stangen, Riegel, Bretter
+      const [x0, z0] = p.a, [x1, z1] = p.b, y = p.y;
+      const len = Math.hypot(x1 - x0, z1 - z0), u = [(x1 - x0) / len, (z1 - z0) / len];
+      for (let t = 0; t <= len; t += 2.5) for (const o of [0, -1.2]) {
+        const px = x0 + u[0] * t - u[1] * o, pz = z0 + u[1] * t + u[0] * o;
+        batch.add(M.vent, rod([px, y, pz], [px, y + 8, pz], 0.05, 5));
+      }
+      for (const yy of [y + 2, y + 4, y + 6, y + 8]) for (const o of [0, -1.2]) batch.add(M.vent, rod([x0 - u[1] * o, yy, z0 + u[0] * o], [x1 - u[1] * o, yy, z1 + u[0] * o], 0.04, 5));
+      for (const yy of [y + 4, y + 8]) {
+        const g = rod([x0 + u[1] * 0.6, yy + 0.03, z0 - u[0] * 0.6], [x1 + u[1] * 0.6, yy + 0.03, z1 - u[0] * 0.6], 0.6, 4);
+        batch.add(M.pallet, g);
+      }
     } else if (p.type === 'vent') {
       const [x, y, z] = p.pos;
       batch.add(M.vent, cyl(1, [x, y + 0.4, z], 0.35, 0.8, 14));
@@ -425,17 +610,47 @@ export function buildPuzzles(scene, level, M, tex) {
   const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3020, toneMapped: false });
   const spikeMat = std({ color: 0xb8bec4, metalness: 0.9, roughness: 0.25 });
   const coneGeo = new THREE.ConeGeometry(0.11, 0.4, 6).translate(0, 0.2, 0);
+  const iceGeo = new THREE.ConeGeometry(0.13, 0.5, 5).translate(0, 0.25, 0);
+  const iceMat = std({ color: 0xd8f0ff, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.85, emissive: 0x3a6a8a, emissiveIntensity: 0.35 });
+  const acidMat = new THREE.MeshStandardMaterial({ color: 0x7dff3a, emissive: 0x4cff1a, emissiveIntensity: 0.9, transparent: true, opacity: 0.75, roughness: 0.2 });
+  const bubbleMat = new THREE.MeshBasicMaterial({ color: 0xc8ff8a, toneMapped: false, transparent: true, opacity: 0.85 });
+  const bubbleGeo = new THREE.SphereGeometry(0.07, 6, 4);
+  // Laserfarbe je Akt
+  const beamMats = new Map();
+  const beamOf = (c) => {
+    if (c === undefined) return { beam: beamMat, lamp: lampMat };
+    if (!beamMats.has(c)) beamMats.set(c, { beam: new THREE.MeshBasicMaterial({ color: c, toneMapped: false }), lamp: new THREE.MeshBasicMaterial({ color: c, toneMapped: false }) });
+    return beamMats.get(c);
+  };
   for (const z of level.hazards) {
     const g = new THREE.Group();
     const w = [z.max[0] - z.min[0], z.max[1] - z.min[1], z.max[2] - z.min[2]];
     if (z.kind === 'laser') {
       const lat = w[0] > w[2] ? 0 : 2; // lange Seite
       const beams = new THREE.Group(), warn = new THREE.Group();
-      for (let y = 0.15; y <= w[1] + 0.01; y += 0.35) {
+      const bm = beamOf(z.color);
+      if (z.arc) {
+        // Lichtbogen der Oberleitung: Zickzack-Blitze zwischen den Masten
+        for (let k = 0; k < 3; k++) {
+          let prevP = null;
+          const n = 9;
+          for (let i = 0; i <= n; i++) {
+            const p = [w[0] / 2, w[1] - 0.2 - (w[1] - 0.6) * (i / n) * (k === 1 ? 0.6 : 1), w[2] / 2];
+            p[lat] = (i / n) * w[lat];
+            if (i > 0 && i < n) { p[1] += ((i * 37 + k * 11) % 7 - 3) * 0.08; p[lat === 0 ? 2 : 0] += ((i * 13 + k * 5) % 5 - 2) * 0.04; }
+            if (prevP) {
+              const g2 = rod(prevP, p, 0.025, 4);
+              beams.add(new THREE.Mesh(g2, bm.beam));
+              warn.add(new THREE.Mesh(g2, warnMat));
+            }
+            prevP = p;
+          }
+        }
+      } else for (let y = 0.15; y <= w[1] + 0.01; y += 0.35) {
         const s = [0.03, 0.03, 0.03]; s[lat] = w[lat];
         const geo = new THREE.BoxGeometry(...s);
         const pos = [w[0] / 2, y, w[2] / 2];
-        const m = new THREE.Mesh(geo, beamMat); m.position.set(...pos); beams.add(m);
+        const m = new THREE.Mesh(geo, bm.beam); m.position.set(...pos); beams.add(m);
         const m2 = new THREE.Mesh(geo, warnMat); m2.position.set(...pos); warn.add(m2);
       }
       g.add(beams, warn);
@@ -445,24 +660,50 @@ export function buildPuzzles(scene, level, M, tex) {
         post.position.set(p[0], (w[1] + 0.3) / 2, p[2]);
         post.castShadow = true;
         g.add(post);
-        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), lampMat);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), bm.lamp);
         lamp.position.set(p[0], w[1] + 0.35, p[2]);
         g.add(lamp);
       }
       live.lasers.push({ z, g, beams, warn });
+    } else if (z.skin === 'acid') {
+      // Säure: leuchtende Fläche, die im Takt aufsteigt und blubbert
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(w[0], Math.max(0.06, w[1]), w[2]).translate(w[0] / 2, Math.max(0.06, w[1]) / 2, w[2] / 2), acidMat);
+      g.add(slab);
+      const bubbles = new THREE.Group();
+      const nb = Math.max(3, Math.round(w[0] * w[2] * 1.2));
+      for (let i = 0; i < nb; i++) {
+        const m = new THREE.Mesh(bubbleGeo, bubbleMat);
+        m.position.set(((i * 0.618) % 1) * w[0], w[1], ((i * 0.381 + 0.17) % 1) * w[2]);
+        m.userData.ph = (i * 0.37) % 1;
+        bubbles.add(m);
+      }
+      g.add(bubbles);
+      const rim = new THREE.Mesh(new THREE.BoxGeometry(w[0] + 0.1, 0.03, w[2] + 0.1), M.hazard || postMat);
+      rim.position.set(w[0] / 2, 0.01, w[2] / 2);
+      g.add(rim);
+      live.spikes.push({ z, g, inst: slab, bubbles, acid: true, h: w[1] });
     } else {
-      const nx = Math.max(1, Math.round(w[0] / 0.3)), nz = Math.max(1, Math.round(w[2] / 0.3));
-      const inst = new THREE.InstancedMesh(coneGeo, spikeMat, nx * nz);
-      const m4 = new THREE.Matrix4();
+      const ice = z.skin === 'icicle';
+      const step = ice ? 0.26 : 0.3;
+      const nx = Math.max(1, Math.round(w[0] / step)), nz = Math.max(1, Math.round(w[2] / step));
+      const inst = new THREE.InstancedMesh(ice ? iceGeo : coneGeo, ice ? iceMat : spikeMat, nx * nz);
+      const m4 = new THREE.Matrix4(), q4 = new THREE.Quaternion(), s4 = new THREE.Vector3(), p4 = new THREE.Vector3();
       let i = 0;
       for (let a = 0; a < nx; a++) for (let b = 0; b < nz; b++) {
-        m4.makeTranslation((a + 0.5) * w[0] / nx, 0, (b + 0.5) * w[2] / nz);
+        if (ice) {
+          // Eiszapfen: unregelmäßig hoch und leicht schief
+          const r = ((a * 7 + b * 13) % 10) / 10;
+          q4.setFromEuler(new THREE.Euler((r - 0.5) * 0.35, 0, (0.5 - ((a * 3 + b * 5) % 10) / 10) * 0.35));
+          s4.set(1, 0.7 + r * 0.7, 1);
+          p4.set((a + 0.5) * w[0] / nx, 0, (b + 0.5) * w[2] / nz);
+          m4.compose(p4, q4, s4);
+        } else m4.makeTranslation((a + 0.5) * w[0] / nx, 0, (b + 0.5) * w[2] / nz);
         inst.setMatrixAt(i++, m4);
       }
       inst.castShadow = true;
       g.add(inst);
-      // Warnstreifen am Rand
-      const base = new THREE.Mesh(new THREE.BoxGeometry(w[0], 0.03, w[2]), M.hazard || postMat);
+      // Warnstreifen am Rand (Eis: Reifschicht)
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w[0], 0.03, w[2]), ice ? iceMat : (M.hazard || postMat));
       base.position.set(w[0] / 2, 0.015, w[2] / 2);
       g.add(base);
       live.spikes.push({ z, g, inst });
@@ -510,7 +751,16 @@ export function updatePuzzles(live, dt) {
     const z = o.z;
     o.g.position.set(...z.cur.min);
     const want = z.active ? 1 : z.warn ? 0.3 : 0.05;
-    o.inst.scale.y += (want - o.inst.scale.y) * Math.min(1, dt * 18);
+    o.inst.scale.y += (want - o.inst.scale.y) * Math.min(1, dt * (o.acid ? 6 : 18));
+    if (o.bubbles) {
+      const t = performance.now() / 1000;
+      o.bubbles.visible = o.inst.scale.y > 0.5;
+      for (const b of o.bubbles.children) {
+        const u = (t * 0.8 + b.userData.ph) % 1;
+        b.position.y = o.h * o.inst.scale.y + u * 0.25;
+        b.scale.setScalar(1 - u);
+      }
+    }
   }
   for (const o of live.plates) {
     o.m.position.y = o.y - (o.pl.down ? 0.04 : 0);
