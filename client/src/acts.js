@@ -353,7 +353,7 @@ export function buildActs(k) {
       const n = 3 + (rnd() < g ? 1 : 0);
       let sd = rnd() < 0.5 ? -1 : 1;
       S('f', R(1.0, 1.4), R(0.2, 0.6), 2.0, 2.0, T.mats[1]);
-      k.sign('SCHIEBEBALKEN', 'Abspringen, wenn der Träger vor dir steht');
+      k.sign('SCHIEBEBALKEN');
       for (let i = 0; i < n; i++) {
         k.mover('slide', 'f', R(1.0, 1.4 + 0.3 * g), R(2.2, 2.6), w, { side: true, dist: (sd *= -1) * R(1.8, 2.4 + 0.6 * g), period, phase, h: 0.25, mat: 'beam', dy: R(0.0, 0.4) });
       }
@@ -365,7 +365,7 @@ export function buildActs(k) {
       const fv = k.dirVec('f');
       for (let i = 0; i < n; i++) {
         const b = S('f', R(1.3, 1.8 + 0.3 * g), R(0.0, 0.6), 1.8, 1.8, T.mats[1], { exact: true });
-        if (i === 0) k.sign('RAMMBÖCKE', 'Warten, bis der Kolben zurückfährt – dann rüber');
+        if (i === 0) k.sign('RAMMBÖCKE');
         ramAcross(b, fv, rnd() < 0.5 ? -1 : 1, { period, phase: 0.18 * i, h: 1.15 });
       }
       S('f', R(1.2, 1.6), R(0.2, 0.6), 2.0, 2.0, T.mats[0], { exact: true });
@@ -373,7 +373,7 @@ export function buildActs(k) {
     gauntlet(T, g) { // Stoßgasse: langer schmaler Steg, Kolben stoßen abwechselnd von links und rechts
       const fv = k.dirVec('f');
       S('f', R(1.0, 1.4), R(0.2, 0.6), 2.0, 2.0, T.mats[1], { exact: true });
-      k.sign('STOSSGASSE', 'Kolben stoßen dich vom Steg – Rhythmus abpassen');
+      k.sign('STOSSGASSE');
       const len = R(7.5, 9), w = 0.62 - 0.12 * g;
       const b = S('f', R(1.0, 1.3), R(0.0, 0.4), len, w, T.beam, { exact: true });
       const period = R(3.0, 3.5) - 0.4 * g;
@@ -394,7 +394,7 @@ export function buildActs(k) {
       for (let i = 0; i < n; i++) {
         const s = 1.3 - 0.2 * g;
         const b = S('f', R(1.3, 1.7 + 0.3 * g), R(-0.2, 0.5), s, s, 'machine', { exact: true, h: R(1.2, 2.0), supports: true });
-        if (i === 0) k.sign('STANZPRESSEN', 'Unter dem Stempel nicht stehen bleiben');
+        if (i === 0) k.sign('STANZPRESSEN');
         const top = b.max[1] + 2.75;
         k.pusher([b.min[0] - 0.05, top, b.min[2] - 0.05], [b.max[0] + 0.05, top + 1.1, b.max[2] + 0.05], [0, -2.75, 0], { press: true, period, phase: (0.15 * i) % 1 });
       }
