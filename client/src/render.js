@@ -9,7 +9,7 @@ import { makeTextures, textCanvas } from './textures.js';
 import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
 import { MachineView } from './machines3d.js';
-import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
+import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, updateWind, buildPuzzles, updatePuzzles } from './models.js';
 import { Rig } from './anim.js';
 import { Splats } from './splat.js';
 import { elementMaterials, buildElements, updateElements } from './elements3d.js';
@@ -828,11 +828,7 @@ export class Renderer {
     this.splats.update(dt);
     updatePuzzles(this.puzzles, dt);
     this.machines?.update(dt);
-    for (const w of this.windFx) {
-      const f = colliders.gust(w.z);
-      w.mat.opacity = 0.08 + 0.4 * f;
-      w.mat.map.offset.x -= w.sign * dt * (0.6 + 1.6 * f);
-    }
+    updateWind(this.windFx, dt, (z) => colliders.gust(z), focus);
     for (const f of this.fanBlades) f.rotation.y += dt * 12;
     if (this.flag) this.flag.rotation.y = Math.sin(performance.now() / 600) * 0.3;
     // Schattenkamera folgt dem Spieler, auf Texel gerastet gegen Flimmern
