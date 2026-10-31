@@ -174,9 +174,11 @@ sind dadurch auf allen Rechnern synchron.
 Alle Klänge entstehen zur Laufzeit mit der Web Audio API – es gibt keine
 Audiodateien und damit keine Lizenzfragen.
 
-- **Musik** (`audio/music.js`): generativer Sequenzer, je Abschnitt eigenes
-  Tempo, eigene Tonart, Akkordfolge und Instrumentierung. Gewechselt wird am
-  Taktanfang; das Versanddach ist das schnellste Thema.
+- **Musik** (`audio/music.js`): generativer Sequenzer mit fünf Soundtracks
+  (Schichtbeginn, Nachtschicht, Neonlager, Hafenkneipe, Stahlwerk). Jeder hat
+  sechs Themen, die mit dem Abschnitt im Akt lauter und schneller werden.
+  Gewechselt wird am Taktanfang. In den Optionen wählbar; „Zufällig“ (Standard)
+  startet jede Schicht mit einem anderen Soundtrack.
 - **Ambiente** (`audio/ambience.js`): Klangteppich je Abschnitt (Hallenlüftung,
   Maschinenbrummen, Wasser, Wind) plus zufällige, räumlich verteilte Ereignisse
   (Durchsage-Gong, Rückfahrwarner, Regalknarzen, Möwen, Schiffshorn …).
@@ -195,6 +197,9 @@ audio.getVolume('music');
 audio.setMuted(true); audio.toggleMute(); audio.muted;
 audio.onChange((settings) => { /* Regler aktualisieren */ });
 audio.play('ui');      // auch 'uiBack', 'uiHover'
+audio.tracks;          // [{ id, name, desc }]
+audio.setTrack('nacht'); audio.setTrack('random'); audio.getTrack();
+audio.newRun();        // zu Beginn jeder Schicht, gibt den gewählten Track zurück
 audio.unlock();        // aus einer Nutzergeste aufrufen (Klick/Taste)
 ```
 
