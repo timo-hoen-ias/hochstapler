@@ -8,7 +8,7 @@
     "build": "vite build",
     "dev:worker": "vite build && wrangler dev",
     "deploy": "vite build && wrangler deploy",
-    "validate": "node scripts/validate-level.mjs && node scripts/simulate-path.mjs && node scripts/test-jump-input.mjs"
+    "validate": "node scripts/validate-level.mjs && node scripts/simulate-path.mjs && node scripts/test-jump-input.mjs && node scripts/test-teams.mjs"
   },
   "dependencies": {
     "three": "^0.180.0"

@@ -230,3 +230,20 @@ button.primary.big:active { transform: translateY(3px); box-shadow: 0 1px 0 #8a6
 .lslot.empty i { background: rgba(255,255,255,0.2); }
 #local-kbm.on { background: rgba(242,192,20,0.25); }
 @media (max-width: 420px) { .local-slots { grid-template-columns: 1fr; } }
+
+/* ───────── Spielmodus / 2 gegen 2 ───────── */
+.mode-label { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #4a4438; margin-bottom: 6px; }
+.mode-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode-pick button { margin: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 9px 12px; border: 2px solid transparent; }
+.mode-pick button b { font-size: 15px; }
+.mode-pick button small { font-weight: 500; font-size: 11px; opacity: 0.7; }
+.ticket .mode-pick button.on { background: #22201c; color: #f3ead6; border-color: #22201c; }
+.ticket .mode-pick button.on small { opacity: 0.8; }
+.mode-box { margin: 10px 0 4px; padding: 10px 12px 2px; border-radius: 10px; background: rgba(255,255,255,0.05); }
+.mode-box h3 { margin-bottom: 2px; }
+.mode-box .small { margin-top: 8px; }
+button:disabled { opacity: 0.55; cursor: default; }
+#hud-players .team { border-left: 4px solid var(--team); padding: 2px 0 2px 8px; margin: 4px 0 8px; }
+#hud-players .team.mine { background: linear-gradient(90deg, rgba(255,255,255,0.08), transparent); border-radius: 0 6px 6px 0; }
+#hud-players .team-head { display: flex; font-size: 12px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--team); }
+#hud-players .team-head b { margin-left: auto; }

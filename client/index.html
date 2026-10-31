@@ -116,7 +116,7 @@
         <!-- Platz für die Spielmodus-Auswahl (z. B. alle am Seil / 2 gegen 2) -->
         <div id="mode-slot"></div>
         <button id="join" class="primary big" type="button">Schicht starten ▸</button>
-        <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit, wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt: mit demselben Raumcode geht es später weiter.</p>
+        <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit, wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt: mit demselben Raumcode geht es später weiter. Bei 2 gegen 2 klettern zwei Seilschaften um die Wette – den Modus legt fest, wer den Raum eröffnet.</p>
       </div>
       <div class="title-foot"><span>Logistikzentrum Hochstapler · Schichtbeginn 17:45</span><span class="blink">● Rampe frei</span></div>
     </section>
@@ -137,6 +137,12 @@
       <p class="small center" id="pause-room"></p>
       <button class="primary" type="button" data-act="resume">Weiterklettern</button>
       <button class="ghost wide" type="button" data-act="copylink">Einladungslink kopieren</button>
+      <div class="mode-box">
+        <h3>Spielmodus</h3>
+        <button id="mode-btn" class="ghost wide" type="button" data-act="mode">◀ Alle an einem Seil ▶</button>
+        <button id="shuffle-btn" class="ghost wide hidden" type="button" data-act="shuffle">Teams neu auslosen (Rennen neu starten)</button>
+        <p id="mode-note" class="small"></p>
+      </div>
       <button class="ghost wide" type="button" data-go="options">Optionen</button>
       <button class="ghost wide" type="button" data-act="respawn">Team zum letzten Zwischenstopp holen</button>
       <button class="ghost wide danger" type="button" data-act="quit">Hauptmenü</button>
@@ -233,7 +239,7 @@
   </div>
 
   <div id="finish" class="overlay hidden"><div class="card">
-    <div class="logo">ZUGE<span>STELLT</span></div>
+    <div class="logo" id="finish-logo">ZUGE<span>STELLT</span></div>
     <p id="finish-text"></p>
     <ol id="board"></ol>
     <button id="again" class="primary" type="button">Neue Schicht (Fortschritt löschen, alle zum Start)</button>
