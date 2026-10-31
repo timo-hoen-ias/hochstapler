@@ -186,6 +186,116 @@ function trailer() {
   return tex(c);
 }
 
+function ice() {
+  const [c, x] = canvas(256);
+  const g = x.createLinearGradient(0, 0, 256, 256);
+  g.addColorStop(0, '#dff3ff'); g.addColorStop(1, '#9ccbe8');
+  x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+  x.strokeStyle = 'rgba(255,255,255,0.7)'; x.lineWidth = 2;
+  for (let i = 0; i < 14; i++) {
+    x.beginPath(); let px = rnd() * 256, py = rnd() * 256; x.moveTo(px, py);
+    for (let k = 0; k < 4; k++) { px += (rnd() - 0.5) * 80; py += (rnd() - 0.5) * 80; x.lineTo(px, py); }
+    x.stroke();
+  }
+  noise(x, 256, 256, 2500, 0.08);
+  return tex(c);
+}
+
+function tires() {
+  const [c, x] = canvas(256);
+  x.fillStyle = '#1b1b1d'; x.fillRect(0, 0, 256, 256);
+  for (let r = 0; r < 4; r++) {
+    x.fillStyle = '#2a2a2e'; x.fillRect(0, r * 64 + 4, 256, 56);
+    x.fillStyle = '#121214';
+    for (let i = 0; i < 256; i += 14) { x.beginPath(); x.moveTo(i, r * 64 + 8); x.lineTo(i + 8, r * 64 + 32); x.lineTo(i, r * 64 + 56); x.lineTo(i + 4, r * 64 + 32); x.fill(); }
+  }
+  x.fillStyle = '#f2c014'; x.fillRect(0, 0, 256, 4);
+  return tex(c);
+}
+
+function bin() {
+  const [c, x] = canvas(128);
+  x.fillStyle = '#2f6fc4'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#255aa3';
+  for (let i = 0; i < 128; i += 32) x.fillRect(i, 0, 3, 128);
+  x.fillStyle = '#fff'; x.fillRect(42, 50, 44, 22);
+  x.fillStyle = '#000'; for (let i = 0; i < 12; i++) x.fillRect(45 + i * 3.4, 53, rnd() > 0.5 ? 2 : 1, 14);
+  noise(x, 128, 128, 500, 0.08);
+  return tex(c);
+}
+
+function drum() {
+  const [c, x] = canvas(128);
+  x.fillStyle = '#c23b22'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#8e2a18'; x.fillRect(0, 30, 128, 6); x.fillRect(0, 92, 128, 6);
+  x.fillStyle = '#f2c014';
+  x.save(); x.translate(64, 64); x.rotate(Math.PI / 4); x.fillRect(-16, -16, 32, 32); x.restore();
+  x.fillStyle = '#111'; x.font = 'bold 18px sans-serif'; x.textAlign = 'center'; x.fillText('!', 64, 71);
+  noise(x, 128, 128, 600, 0.1);
+  return tex(c);
+}
+
+function timber() {
+  const [c, x] = canvas(256);
+  x.fillStyle = '#b0844f'; x.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 256; i += 32) {
+    x.fillStyle = `rgb(${160 + rnd() * 30},${115 + rnd() * 20},${70 + rnd() * 15})`; x.fillRect(0, i + 1, 256, 30);
+    x.fillStyle = 'rgba(70,40,15,0.3)';
+    for (let k = 0; k < 6; k++) x.fillRect(rnd() * 256, i + 4 + rnd() * 22, 30 + rnd() * 50, 1);
+  }
+  return tex(c);
+}
+
+function wagon() {
+  const [c, x] = canvas(256);
+  x.fillStyle = '#7b3524'; x.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 256; i += 32) { x.fillStyle = '#5e2719'; x.fillRect(i, 0, 5, 256); }
+  x.fillStyle = 'rgba(200,120,60,0.25)';
+  for (let i = 0; i < 40; i++) x.fillRect(rnd() * 256, rnd() * 256, 2 + rnd() * 10, 2 + rnd() * 10);
+  x.fillStyle = '#eee'; x.font = 'bold 22px monospace'; x.fillText('DB 31 80 ' + Math.floor(rnd() * 9000 + 1000), 20, 230);
+  return tex(c);
+}
+
+function fan() {
+  const [c, x] = canvas(256);
+  x.fillStyle = '#3a4046'; x.fillRect(0, 0, 256, 256);
+  x.strokeStyle = '#9aa3a8'; x.lineWidth = 6;
+  x.beginPath(); x.arc(128, 128, 110, 0, Math.PI * 2); x.stroke();
+  for (let r = 30; r < 110; r += 16) { x.beginPath(); x.arc(128, 128, r, 0, Math.PI * 2); x.lineWidth = 2; x.stroke(); }
+  x.fillStyle = '#f2c014'; x.fillRect(0, 0, 256, 8); x.fillRect(0, 248, 256, 8);
+  return tex(c);
+}
+
+function blink() {
+  const [c, x] = canvas(128);
+  x.fillStyle = '#e46b1d'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#b8510f'; x.fillRect(0, 60, 128, 8);
+  x.strokeStyle = '#1a1a1a'; x.lineWidth = 4; x.strokeRect(4, 4, 120, 120);
+  noise(x, 128, 128, 500, 0.08);
+  return tex(c);
+}
+
+function checkpoint() {
+  const [c, x] = canvas(256);
+  x.fillStyle = '#2d6b45'; x.fillRect(0, 0, 256, 256);
+  x.strokeStyle = '#f4f1e6'; x.lineWidth = 10; x.strokeRect(12, 12, 232, 232);
+  x.fillStyle = '#f4f1e6'; x.font = 'bold 30px sans-serif'; x.textAlign = 'center';
+  x.fillText('ZWISCHEN-', 128, 118); x.fillText('STOPP', 128, 156);
+  noise(x, 256, 256, 1500, 0.08);
+  return tex(c, false);
+}
+
+function roof() {
+  const [c, x] = canvas(512);
+  x.fillStyle = '#3d4f6b'; x.fillRect(0, 0, 512, 512);
+  x.strokeStyle = '#f4f1e6'; x.lineWidth = 14;
+  x.strokeRect(40, 40, 432, 432);
+  x.fillStyle = '#f4f1e6'; x.font = 'bold 64px sans-serif'; x.textAlign = 'center';
+  x.fillText('AKT 1', 256, 240); x.font = '40px sans-serif'; x.fillText('geschafft', 256, 300);
+  noise(x, 512, 512, 4000, 0.08);
+  return tex(c, false);
+}
+
 function goal() {
   const [c, x] = canvas(512);
   x.fillStyle = '#2f7d4a'; x.fillRect(0, 0, 512, 512);
@@ -210,6 +320,8 @@ export function makeTextures() {
     concrete: concrete(), ground: ground(), goods: goods(), crate: crate(), carton: carton(),
     beam: steel('#e26a1c', true), upright: steel('#2a5ea8', true), grate: grate(),
     container: container(), belt: belt(), hazard: hazard(), trailer: trailer(), goal: goal(),
+    ice: ice(), tires: tires(), bin: bin(), drum: drum(), timber: timber(), wagon: wagon(),
+    fan: fan(), blink: blink(), checkpoint: checkpoint(), roof: roof(),
     vest,
   };
 }

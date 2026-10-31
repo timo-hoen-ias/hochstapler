@@ -33,7 +33,7 @@
         <button class="ghost" type="button" data-go="controls">Steuerung</button>
       </div>
       <button id="solo" class="link" type="button">Solo üben (ohne Server)</button>
-      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe. Raumcode teilen oder nach dem Start den Einladungslink kopieren.</p>
+      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt im Raum: mit demselben Raumcode geht es später weiter.</p>
     </section>
 
     <section class="card screen hidden" data-screen="pause">
@@ -45,7 +45,7 @@
         <button class="ghost" type="button" data-go="options">Optionen</button>
         <button class="ghost" type="button" data-go="controls">Steuerung</button>
       </div>
-      <button class="ghost wide" type="button" data-act="respawn">Zurück zum Seilpartner</button>
+      <button class="ghost wide" type="button" data-act="respawn">Team zum letzten Zwischenstopp holen</button>
       <button class="ghost wide danger" type="button" data-act="quit">Hauptmenü</button>
     </section>
 
@@ -102,6 +102,7 @@
       <div id="hud-section">Tor 1 · Wareneingang</div>
       <div id="hud-height">0 m</div>
       <div id="hud-best">Rekord 0 m</div>
+      <div id="hud-cp"></div>
       <div id="hud-timer">00:00</div>
     </div>
     <div id="hud-right">
@@ -141,7 +142,7 @@
     <div class="logo">ZUGE<span>STELLT</span></div>
     <p id="finish-text"></p>
     <ol id="board"></ol>
-    <button id="again" class="primary" type="button">Neue Schicht (alle zurück zum Start)</button>
+    <button id="again" class="primary" type="button">Neue Schicht (Fortschritt löschen, alle zum Start)</button>
     <button id="stay" class="ghost" type="button">Weiter umsehen</button>
   </div></div>
 
