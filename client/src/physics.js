@@ -19,7 +19,11 @@ export const PHYS = {
   reach: 1.95,      // Hände über dem Fußpunkt beim Hängen
   ledgeMin: 1.15,   // Kante greifbar, wenn sie so hoch über den Füßen liegt …
   ledgeMax: 2.15,   // … bis hierhin
-  hookGrab: 0.8,    // Greifradius am Kranhaken
+  hookGrab: 1.0,    // Greifradius am Kranhaken (waagerecht, um Haken und Kette)
+  hookGrabLow: 0.9, // so weit darf die Hand unter dem Haken sein …
+  hookGrabHigh: 1.6, // … und so weit darüber (an der Kette greifen)
+  hookAssist: 2.4,  // in diesem Umkreis lenkt der Sprung sanft zum Haken
+  hookAssistAccel: 12,
   hookPump: 9,      // Schwungkraft am Haken
   hookJump: 5.5,    // Absprung vom Haken
   ladderSpeed: 3.4,
@@ -191,11 +195,16 @@ export class Colliders {
     }
   }
 
-  hookNear(hand, r) {
-    let best = null, bd = r;
+  // Nächster Haken, den die Hand erwischt: Zylinder um Haken und unteres Kettenstück
+  hookNear(hand, r, low = PHYS.hookGrabLow, high = PHYS.hookGrabHigh) {
+    let best = null, bd = Infinity;
     for (const h of this.hooks) {
-      const g = h.cur;
-      const d = Math.hypot(hand[0] - g[0], hand[1] - (g[1] - h.len), hand[2] - g[2]);
+      const g = h.cur, gy = g[1] - h.len;
+      const dv = hand[1] - gy;
+      if (dv < -low || dv > high) continue;
+      const dh = Math.hypot(hand[0] - g[0], hand[2] - g[2]);
+      if (dh > r) continue;
+      const d = dh + Math.abs(dv) * 0.3;
       if (d < bd) { bd = d; best = h; }
     }
     return best;
@@ -564,11 +573,25 @@ export function stepBody(body, input, world, dt) {
     }
   }
 
-  // Kranhaken greifen
+  // Kranhaken greifen. Im Sprung lenkt eine sanfte Hilfe zum nahen Haken,
+  // damit man ihn nicht knapp verfehlt; gegriffen wird an Haken und Kette.
   if (!body.grounded && !body.hang && body.gripCool <= 0 && world.hooks.length) {
     const hand = [body.pos[0], body.pos[1] + PHYS.reach, body.pos[2]];
     const hk = world.hookNear(hand, PHYS.hookGrab);
     if (hk) { body.hook = { h: hk, last: [...hk.cur] }; body.jumpBuf = 0; }
+    else {
+      const near = world.hookNear(hand, PHYS.hookAssist, 1.6, 2.4);
+      if (near) {
+        const g = near.cur;
+        const lx = g[0] - hand[0], lz = g[2] - hand[2], l = Math.hypot(lx, lz) || 1;
+        // nur helfen, wenn man ohnehin ungefähr auf den Haken zu fliegt
+        const toward = (body.vel[0] * lx + body.vel[2] * lz) / l;
+        if (toward > -0.5) {
+          const a = PHYS.hookAssistAccel * dt * Math.min(1, l / 0.6);
+          body.vel[0] += lx / l * a; body.vel[2] += lz / l * a;
+        }
+      }
+    }
   }
 
   // Leiter: in der Leiterzone zur Wand drücken

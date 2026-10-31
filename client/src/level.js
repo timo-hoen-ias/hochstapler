@@ -488,8 +488,8 @@ export function buildLevel(opts = {}) {
     const hookRoom = (h) => {
       const d = h.motion ? h.motion.delta : [0, 0, 0];
       return {
-        min: [Math.min(h.pivot[0], h.pivot[0] + d[0]) - 0.6, h.pivot[1] - h.len - 2.2, Math.min(h.pivot[2], h.pivot[2] + d[2]) - 0.6],
-        max: [Math.max(h.pivot[0], h.pivot[0] + d[0]) + 0.6, h.pivot[1] + 1.2, Math.max(h.pivot[2], h.pivot[2] + d[2]) + 0.6],
+        min: [Math.min(h.pivot[0], h.pivot[0] + d[0]) - 1.2, h.pivot[1] - h.len - 3.3, Math.min(h.pivot[2], h.pivot[2] + d[2]) - 1.2],
+        max: [Math.max(h.pivot[0], h.pivot[0] + d[0]) + 1.2, h.pivot[1] + 1.2, Math.max(h.pivot[2], h.pivot[2] + d[2]) + 1.2],
       };
     };
     const news = solids.slice(firstNew).filter((o) => !o.gate);
