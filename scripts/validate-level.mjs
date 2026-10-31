@@ -80,7 +80,7 @@ for (let i = 0; i < solids.length; i++) {
   const head = { min: [s.min[0] - 0.3, s.max[1] + 0.01, s.min[2] - 0.3], max: [s.max[0] + 0.3, s.max[1] + 2.0, s.max[2] + 0.3] };
   const bare = { min: [s.min[0], s.max[1] + 0.01, s.min[2]], max: [s.max[0], s.max[1] + 2.0, s.max[2]] };
   // Leitertürme stehen direkt an der Plattform davor: nur echte Überdeckung zählt
-  for (const j of near(head)) if (j !== i && inter(head, solids[j]) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
+  if (!s.basin) for (const j of near(head)) if (j !== i && inter(head, solids[j]) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
 }
 
 for (const [k, m] of level.movers.entries()) {

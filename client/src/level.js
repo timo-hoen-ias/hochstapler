@@ -4,6 +4,7 @@
 // mit steigender Schwierigkeit. Zwischenstopps speichern den Fortschritt.
 
 import { buildAct1 } from './act1.js';
+import { buildActs } from './acts.js';
 
 // Abschnitte von Akt 1 (handgebaut)
 const HANDMADE = [
@@ -13,22 +14,6 @@ const HANDMADE = [
   { name: 'Staplerzone', hall: 'Halle 4', fog: 0xc28e92 },
   { name: 'Containerhafen', hall: 'Kai 5', fog: 0x9b84a3 },
   { name: 'Versanddach', hall: 'Dach', fog: 0x7a7aa8 },
-];
-
-// Themen der erzeugten Abschnitte. w = Gewichte der Elemente.
-const THEMES = [
-  { name: 'Kühlhaus', sub: 'Vorsicht, Boden gefroren', fog: 0xa9c6e0, mats: ['ice', 'crate', 'grate'], w: { block: 3, ice: 5, beam: 1, lift: 1 } },
-  { name: 'Paketzentrum', sub: 'Kippschalen klappen weg', fog: 0xd9b48a, mats: ['carton', 'goods', 'grate'], w: { block: 3, belt: 3, blink: 3, slide: 1 } },
-  { name: 'Reifenlager', sub: 'Reifenstapel federn – Shift bremst', fog: 0x9a8f86, mats: ['tires', 'goods', 'grate'], w: { block: 3, bounce: 3, beam: 1, swing: 1 } },
-  { name: 'Kleinteilelager', sub: 'Shuttle-Regal in Bewegung', fog: 0x8fb0c4, mats: ['bin', 'grate', 'beam'], w: { block: 3, beam: 3, slide: 2, lift: 1 } },
-  { name: 'Lüftungszentrale', sub: 'Aufwind nutzen', fog: 0xb7c4c9, mats: ['grate', 'concrete', 'bin'], w: { block: 3, fan: 3, beam: 2, blink: 1 } },
-  { name: 'Gefahrstofflager', sub: 'Nur mit Schutzausrüstung', fog: 0xc9b56a, mats: ['drum', 'grate', 'crate'], w: { block: 3, beam: 2, blink: 2, belt: 1 } },
-  { name: 'Holzlager', sub: 'Kranlasten schwingen', fog: 0xcf9f72, mats: ['timber', 'crate', 'goods'], w: { block: 4, swing: 2, beam: 2 } },
-  { name: 'Getränkelager', sub: 'Lifte im Takt', fog: 0xc79a9a, mats: ['goods', 'drum', 'grate'], w: { block: 3, lift: 3, belt: 1, ice: 1 } },
-  { name: 'Gleisanschluss', sub: 'Waggons rangieren', fog: 0x9a8a7c, mats: ['wagon', 'container', 'grate'], w: { block: 3, slide: 3, swing: 1 } },
-  { name: 'Retourenhalle', sub: 'Alles durcheinander', fog: 0xb39bb8, mats: ['carton', 'tires', 'goods'], w: { block: 3, belt: 2, bounce: 2, blink: 1 } },
-  { name: 'Schwerlastregal', sub: 'Große Abstände', fog: 0x8e94b2, mats: ['goods', 'beam', 'crate'], w: { block: 3, beam: 3, lift: 2, fan: 1 } },
-  { name: 'Hochsilo', sub: 'Paternoster und Lüfter', fog: 0x7f86a8, mats: ['concrete', 'grate', 'bin'], w: { block: 2, lift: 3, fan: 3, blink: 1 } },
 ];
 
 export const GENERATED_SECTIONS = 36;
@@ -214,7 +199,7 @@ export function buildLevel(opts = {}) {
     if (opts.model) b.model = opts.model;
     if (mat === 'beam' || mat === 'grate' || mat === 'blink' || mat === 'checkpoint' || mat === 'ice' || mat === 'bin' || mat === 'fan' || opts.supports) supports(b);
     commitStatic(b, prev);
-    path.push({ box: b, kind: 'static', how: opts.how });
+    path.push({ box: b, kind: 'static', how: opts.how, special: opts.extra?.ice ? 'ice' : undefined });
     prev = b;
     return b;
   }
@@ -424,7 +409,7 @@ export function buildLevel(opts = {}) {
     return b;
   }
   function prop(type, pos, o = {}) { props.push({ type, pos, ...o, sec }); }
-  function face(dir) { fwd = dirVec(dir); }
+  function face(dir, world) { fwd = world ? [...world] : dirVec(dir); }
   function here() { return prev; }
   function setPrev(b) { prev = b; }
   function shortcut(from, to, how) { shortcuts.push({ from, to, how }); }
@@ -472,152 +457,131 @@ export function buildLevel(opts = {}) {
     get prev() { return prev; }, get fwd() { return fwd; },
   });
 
-  // ───────── Erzeugte Abschnitte ─────────
-  const rnd = mulberry32(SEED);
-  const R = (a, b) => a + (b - a) * rnd();
-  const pick = (weights) => {
-    let sum = 0;
-    for (const v of Object.values(weights)) sum += v;
-    let r = rnd() * sum;
-    for (const [k, v] of Object.entries(weights)) { r -= v; if (r <= 0) return k; }
-    return Object.keys(weights)[0];
-  };
-  const DIRS = [[0, -1], [-1, 0], [0, 1], [1, 0]];
+  // ───────── Akte 2–7: Set-Pieces mit eigenem Thema je Akt (acts.js) ─────────
   const BOUND = 42;
   const inBounds = (b) => b.min[0] > -BOUND && b.max[0] < BOUND && b.min[2] > -BOUND && b.max[2] < BOUND;
-
-  let hall = 7;
-  for (let g = 0; g < generated; g++) {
-    const d = generated > 1 ? g / (generated - 1) : 0; // Schwierigkeit 0..1
-    const theme = THEMES[g % THEMES.length];
-    const tier = Math.floor(g / THEMES.length);
-    const info = { name: theme.name + (tier ? ' ' + 'I'.repeat(tier + 1) : ''), hall: 'Halle ' + hall++, fog: theme.fog, theme: theme.name };
-    section(info, DIRS[(g + 1) % 4], prev.max[1]);
-
-    // Startplattform = Zwischenstopp
-    placeGenerated('checkpoint', { a: 3.2, l: 3.2, gap: 1.4, dy: 0.6 });
-    markCheckpoint(info.hall);
-    sign(`${info.hall.toUpperCase()} · ${info.name.toUpperCase()}`, theme.sub);
-
-    const steps = Math.round(30 + 10 * d);
-    let lastTimed = false;
-    for (let s = 0; s < steps; s++) {
-      if (s === Math.floor(steps / 2)) {
-        placeGenerated('checkpoint', { a: 2.6, l: 2.6, gap: R(1.0, 1.6), dy: R(0.3, 0.8) });
-        markCheckpoint(info.hall + ' Mitte');
-        lastTimed = false;
-        continue;
-      }
-      const gimmickChance = 0.25 + 0.35 * d;
-      let kind = rnd() < gimmickChance ? pick(theme.w) : 'block';
-      const timed = ['lift', 'slide', 'swing', 'blink'].includes(kind);
-      if (timed && lastTimed) kind = 'block';
-      if (['bounce', 'fan'].includes(kind) && ['bounce', 'fan'].includes(path[path.length - 1].special)) kind = 'block';
-      placeGenerated(kind, { d, theme });
-      const placed = path[path.length - 1];
-      lastTimed = !!placed.mover || placed.kind === 'blink';
-    }
+  // Zustand sichern / zurücksetzen, damit ein Set-Piece, das nicht passt, spurlos verschwindet
+  const corridors = []; // Sprungräume zwischen Kletterpunkten, die frei bleiben müssen
+  const lists = { corridors, statics, movers, decor, signs, zones, path, hooks, ladders, props, hazards, plates, solids, clears, supported, checkpoints };
+  function snapshot() {
+    const s = { prev, fwd, containerColor };
+    for (const [k, v] of Object.entries(lists)) s[k] = v.length;
+    return s;
   }
-
-  // Ein Element des Generators platzieren – mit mehreren Versuchen, bis es passt.
-  function placeGenerated(kind, o) {
-    const d = o.d ?? 0;
-    const theme = o.theme;
-    const prevSpecial = path[path.length - 1]?.special;
-    // Vor der Hallenwand abbiegen: so entsteht die Spirale
-    const pc = [(prev.min[0] + prev.max[0]) / 2, (prev.min[2] + prev.max[2]) / 2];
-    for (let turn = 0; turn < 4; turn++) {
-      const ax = pc[0] + fwd[0] * 7, az = pc[1] + fwd[1] * 7;
-      if (Math.abs(ax) < BOUND - 3 && Math.abs(az) < BOUND - 3) break;
-      fwd = [-fwd[1], fwd[0]];
+  function rollback(s) {
+    for (const [k, v] of Object.entries(lists)) v.length = s[k];
+    prev = s.prev; fwd = s.fwd; containerColor = s.containerColor;
+  }
+  // Neue Teile dürfen nichts schneiden und brauchen Kopffreiheit (gleiche Regeln wie validate-level)
+  let pieceWhy = '';
+  function pieceOk(s) {
+    const all = solids.filter((o) => !o.gate);
+    const firstNew = s.solids;
+    // Kopffreiheit großzügig: auch keine greifbaren Kanten knapp über einer Plattform
+    const head = (b) => ({ min: [b.min[0] - 0.4, b.max[1] + 0.01, b.min[2] - 0.4], max: [b.max[0] + 0.5, b.max[1] + 2.6, b.max[2] + 0.4] });
+    const bare = (b) => ({ min: [b.min[0], b.max[1] + 0.01, b.min[2]], max: [b.max[0], b.max[1] + 2.6, b.max[2]] });
+    const blocks = (lo, hi) => {
+      if (lo.basin) { pieceWhy = 'R1'; return false; } // Säurebecken: Fässer stehen darin
+      if (!inter(head(lo), hi)) { pieceWhy = 'R2'; return false; }
+      return !hi.ladderBlock || inter(bare(lo), hi);
+    };
+    const hookRoom = (h) => {
+      const d = h.motion ? h.motion.delta : [0, 0, 0];
+      return {
+        min: [Math.min(h.pivot[0], h.pivot[0] + d[0]) - 0.6, h.pivot[1] - h.len - 2.2, Math.min(h.pivot[2], h.pivot[2] + d[2]) - 0.6],
+        max: [Math.max(h.pivot[0], h.pivot[0] + d[0]) + 0.6, h.pivot[1] + 1.2, Math.max(h.pivot[2], h.pivot[2] + d[2]) + 0.6],
+      };
+    };
+    const news = solids.slice(firstNew).filter((o) => !o.gate);
+    for (const n of news) {
+      if (!inBounds(n)) { pieceWhy = 'R3'; return false; }
+      for (const o of all) {
+        if (o === n) continue;
+        if (o.max[1] < n.min[1] - 3.2 || o.min[1] > n.max[1] + 3.2) continue;
+        const sweepN = !n.mat, sweepO = !o.mat; // Fahrwege beweglicher Teile
+        if (inter(n, o) && !(n.basin && o.mat === 'drum') && !(o.basin && n.mat === 'drum')) { pieceWhy = 'R4'; return false; }
+        if (!sweepN && !sweepO && (blocks(n, o) || blocks(o, n))) { pieceWhy = 'R5'; return false; }
+      }
+      // Lüfter-Aufwind darf nicht verbaut werden, Wind anderer Stücke nicht hineinwehen
+      for (const z of zones) if (z.lift && z.max[1] > n.min[1] && inter(z, n)) { pieceWhy = 'R6'; return false; }
+      for (const z of zones.slice(0, s.zones)) if (z.push && n.mat && inter(z, n)) { pieceWhy = 'R7'; return false; }
     }
-    for (let attempt = 0; attempt < 60; attempt++) {
-      if (attempt === 30) fwd = [-fwd[1], fwd[0]];
-      const late = attempt > 20;
-      const dir = attempt % 30 < 22 ? (['f', 'f', 'l', 'r'])[Math.floor(rnd() * 4)] : (['f', 'l', 'r', 'b'])[attempt % 4];
-      // Nach Luftpolster/Lüfter sind höhere Stufen erreichbar
-      const boost = prevSpecial === 'bounce' ? R(2.0, 3.0) : prevSpecial === 'fan' ? R(2.8, 3.8) : 0;
-      const maxGap = Math.min(2.3, 1.3 + 1.0 * d);
-      const gap = o.gap ?? (late ? R(0.9, 1.3) : R(0.9, maxGap));
-      const dyMax = Math.min(1.25, 0.7 + 0.5 * d);
-      const dy = boost || (o.dy ?? R(0.2, dyMax));
-      const sMin = Math.max(0.9, 2.6 - 1.4 * d), sMax = Math.max(1.4, 3.2 - 1.2 * d);
-      let a = o.a ?? R(sMin, sMax), l = o.l ?? R(sMin, sMax);
-      const mats = theme ? theme.mats : ['grate'];
-      let mat = kind === 'checkpoint' ? 'checkpoint' : mats[Math.floor(rnd() * mats.length)];
-
-      if (kind === 'block' || kind === 'checkpoint' || kind === 'ice' || kind === 'bounce' || kind === 'belt' || kind === 'blink' || kind === 'beam') {
-        const extra = {};
-        let useDy = dy, useGap = gap;
-        if (kind === 'ice') { mat = 'ice'; a = Math.max(a, 2.4); l = Math.max(l, 2.4); extra.ice = true; }
-        if (kind === 'bounce') { mat = 'tires'; a = l = R(1.6, 2.2); extra.bounce = true; }
-        if (kind === 'blink') { mat = 'blink'; a = l = R(1.6, 2.2); }
-        if (kind === 'beam') {
-          mat = 'beam';
-          const w = d > 0.7 ? 0.28 : 0.35;
-          if (dir === 'f' || dir === 'b') { a = R(2.2, 3.2); l = w; } else { a = w; l = R(2.2, 3.2); }
-        }
-        let belt;
-        if (kind === 'belt') {
-          mat = 'belt';
-          const len = R(4, 6), sp = R(2, 2.4 + 2 * d);
-          const along = dirVec(dir);
-          if (dir === 'f' || dir === 'b') { a = len; l = 1.4; } else { a = 1.4; l = len; }
-          // gegen die Laufrichtung, mit ihr oder seitlich
-          const mode = Math.floor(rnd() * 3);
-          const v = mode === 0 ? [-along[0] * sp, -along[1] * sp] : mode === 1 ? [along[0] * sp * 0.8, along[1] * sp * 0.8] : [along[1] * sp, -along[0] * sp];
-          belt = [v[0], 0, v[1]];
-          // Wer mit dem Band läuft, springt weiter – Lücke danach nicht vergrößern
-        }
-        const c = candidate(dir, useGap, useDy, a, l, mat);
-        if (!inBounds(c)) { if (DEBUG) console.log('bounds', dir, c.min.map(Math.round), c.max.map(Math.round)); continue; }
-        const clr = clearVolumes(c, prev, kind === 'bounce' ? 3 : 0);
-        if (!fits(c, clr, prev)) { if (DEBUG) console.log('fit', dir, why); continue; }
-        const b = box(c.min, c.max, pickMat(mat), extra);
-        if (belt) b.belt = belt;
-        if (kind === 'blink') b.blink = { period: R(5 - 1.5 * d, 6 - 1.5 * d), phase: rnd() };
-        if (mat !== 'goods' && mat !== 'container') supports(b);
-        solids.push(b);
-        clears.push(...clr);
-        path.push({ box: b, kind: kind === 'blink' ? 'blink' : 'static', special: kind });
-        prev = b;
-        return b;
-      }
-
-      if (kind === 'fan') {
-        const s = R(1.8, 2.4);
-        const c = candidate(dir, gap, 0, s, s, 'fan');
-        if (!inBounds(c)) continue;
-        const height = 6.0;
-        const zone = { min: [c.min[0], c.max[1], c.min[2]], max: [c.max[0], c.max[1] + height, c.max[2]], lift: 42 };
-        const clr = [...clearVolumes(c, prev), zone];
-        if (!fits(c, clr, prev)) continue;
-        const b = box(c.min, c.max, 'fan', { fan: true });
-        supports(b);
-        zones.push(zone);
-        solids.push(b);
-        clears.push(...clr);
-        path.push({ box: b, kind: 'static', special: 'fan', zone });
-        prev = b;
-        return b;
-      }
-
-      if (kind === 'lift' || kind === 'slide' || kind === 'swing') {
-        const period = R(8 - 2.5 * d, 9 - 2.5 * d);
-        const sz = R(1.6, 2.2);
-        const opts = kind === 'lift'
-          ? { range: R(3, 5 + 2 * d), period }
-          : { dist: R(5, 7 + 2 * d), period, h: kind === 'swing' ? 1.1 : 0.3 };
-        if (kind !== 'lift' && dir === 'b') continue;
-        const c = moverCandidate(kind, dir, 0.7, sz, sz, opts);
-        if (!inBounds(c.sweep)) continue;
-        const clr = clearVolumes(c.sweep, prev);
-        if (!fits(c.sweep, clr, prev)) continue;
-        return mover(kind, dir, 0.7, sz, sz, { ...opts, mat: kind === 'swing' ? 'crate' : (theme && theme.name === 'Gleisanschluss' ? 'wagon' : 'lift') });
-      }
+    // Fahrwege beweglicher Plattformen samt Platz für den Spieler darauf
+    const room = (m) => {
+      const mn = m.base.min.map((v, i) => Math.min(v, v + m.delta[i]));
+      const mx = m.base.max.map((v, i) => Math.max(v, v + m.delta[i]));
+      if (m.kind === 'swing') mn[1] -= m.dip;
+      mx[1] += 1.95;
+      return { min: mn, max: mx };
+    };
+    for (const m of movers.slice(s.movers)) {
+      const r = room(m);
+      for (const o of all) if (o.mat && inter(r, o)) { pieceWhy = 'R8'; return false; }
     }
-    if (kind !== 'block' && kind !== 'checkpoint') return placeGenerated('block', o);
-    throw new Error(`Generator: kein Platz für ${kind} in Abschnitt ${sec}`);
+    for (const m of movers.slice(0, s.movers)) {
+      const r = room(m);
+      for (const n of news) if (n.mat && inter(r, n)) { pieceWhy = 'R9'; return false; }
+    }
+    for (const z of zones.slice(s.zones)) {
+      if (z.push) { for (const o of solids.slice(0, firstNew)) if (o.mat && o !== s.prev && inter(z, o)) { pieceWhy = 'R10'; return false; } continue; }
+      if (!z.lift) continue;
+      for (const o of all) if (inter(z, o)) { pieceWhy = 'R11'; return false; }
+    }
+    // Sprungkorridore: neue Übergänge gegen alle Teile, alte Übergänge gegen neue Teile
+    const skip = (o, c) => !o.mat || o.gate || o.basin || o === c.a || o === c.b;
+    const fresh = [];
+    for (let i = Math.max(1, s.path); i < path.length; i++) {
+      const A = path[i - 1], B = path[i];
+      const ta = A.box.max[1], tb = B.box.ramp ? B.box.ramp.near : B.box.max[1];
+      let hi = Math.max(ta, tb) + 2.6;
+      if (A.special === 'fan' && A.zone) hi = Math.max(hi, A.zone.max[1] + 0.3);
+      if (A.special === 'bounce') hi += 1.2;
+      // Raum zwischen den einander zugewandten Seiten: überlappende Achsen → Schnittmenge,
+      // getrennte Achsen → Lücke plus ein Stück in beide Boxen hinein
+      const mn = [0, Math.min(ta, tb) + 0.05, 0], mx = [0, hi, 0];
+      for (const ax of [0, 2]) {
+        const lo = Math.max(A.box.min[ax], B.box.min[ax]), up = Math.min(A.box.max[ax], B.box.max[ax]);
+        if (up > lo) { mn[ax] = lo - 0.3; mx[ax] = up + 0.3; }
+        else { mn[ax] = up - 0.6; mx[ax] = lo + 0.6; }
+      }
+      fresh.push({ min: mn, max: mx, a: A.box, b: B.box });
+    }
+    for (const h of hooks.slice(s.hooks)) fresh.push({ ...hookRoom(h), a: null, b: null });
+    for (const c of fresh) for (const o of all) if (!skip(o, c) && inter(c, o)) { pieceWhy = 'R12'; return false; }
+    for (const c of corridors) for (const n of news) if (!skip(n, c) && inter(c, n)) { pieceWhy = 'R13'; return false; }
+    corridors.push(...fresh);
+    const extras = [...hooks.slice(s.hooks).map(hookRoom), ...hazards.slice(s.hazards), ...ladders.slice(s.ladders)];
+    const olds = solids.slice(0, firstNew);
+    const anchor = s.prev;
+    for (const e of extras) {
+      if (!inBounds(e)) { pieceWhy = 'R14'; return false; }
+      for (const o of olds) if (o !== anchor && o.max[1] > e.min[1] - 0.5 && o.min[1] < e.max[1] && inter(e, o)) { pieceWhy = 'R15'; return false; }
+    }
+    return true;
+  }
+  function solid(min, max, mat, extra) { const b = box(min, max, pickMat(mat), extra); solids.push(b); return b; }
+  function special(name) { path[path.length - 1].special = name; }
+  function addPath(b, kind = 'static', o = {}) { path.push({ box: b, kind, ...o }); prev = b; return b; }
+  function tagPath(from, name) { for (let i = from; i < path.length; i++) path[i].piece = name; }
+  function dropLastPath() { path.pop(); }
+  function markBlink() { path[path.length - 1].kind = 'blink'; path[path.length - 1].special = 'blink'; }
+  function fanZone(b, height = 6) {
+    const zone = { min: [b.min[0], b.max[1], b.min[2]], max: [b.max[0], b.max[1] + height, b.max[2]], lift: 42, sec };
+    zones.push(zone);
+    path[path.length - 1].special = 'fan';
+    path[path.length - 1].zone = zone;
+    clears.push(zone);
+    return zone;
+  }
+  if (generated > 0) {
+    buildActs({
+      section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint, hazard, plate, gate,
+      face, dirVec, snapshot, rollback, pieceOk, solid, special, fanZone, supports, addPath, markBlink, setPrev, dropLastPath, tagPath,
+      ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),
+      pathLength: () => path.length, pathBoxes: (from) => path.slice(from).map((p) => p.box),
+      get prev() { return prev; }, get fwd() { return fwd; },
+      BOUND, rnd: mulberry32(SEED), debug: DEBUG, why: () => pieceWhy,
+    });
   }
 
   // Ziel ganz oben
