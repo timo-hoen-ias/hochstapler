@@ -97,8 +97,7 @@
         <nav class="title-nav">
           <button class="nav-btn" type="button" data-focus="name"><b>Schicht starten</b><small>Raum öffnen oder beitreten</small></button>
           <button id="solo" class="nav-btn" type="button"><b>Solo üben</b><small>ohne Server, allein am Seil</small></button>
-          <button class="nav-btn" type="button" data-go="options"><b>Optionen</b><small>Grafik, Steuerung, Ton</small></button>
-          <button class="nav-btn" type="button" data-go="controls"><b>Steuerung</b><small>Tastatur, Controller, Touch</small></button>
+          <button class="nav-btn" type="button" data-go="options"><b>Optionen</b><small>Grafik, Steuerung, Ton, Tastenbelegung</small></button>
         </nav>
       </div>
       <div class="card ticket">
@@ -126,16 +125,13 @@
       <p class="small center" id="pause-room"></p>
       <button class="primary" type="button" data-act="resume">Weiterklettern</button>
       <button class="ghost wide" type="button" data-act="copylink">Einladungslink kopieren</button>
-      <div class="menu-row">
-        <button class="ghost" type="button" data-go="options">Optionen</button>
-        <button class="ghost" type="button" data-go="controls">Steuerung</button>
-      </div>
+      <button class="ghost wide" type="button" data-go="options">Optionen</button>
       <button class="ghost wide" type="button" data-act="respawn">Team zum letzten Zwischenstopp holen</button>
       <button class="ghost wide danger" type="button" data-act="quit">Hauptmenü</button>
     </section>
 
     <section class="card screen hidden wide-card" data-screen="options">
-      <h2>Optionen</h2>
+      <div class="opt-head"><h2>Optionen</h2><button class="ghost" type="button" data-go="controls">Steuerung anzeigen</button></div>
       <div id="options-list" class="options"></div>
       <div class="menu-row">
         <button class="ghost" type="button" data-act="reset">Zurücksetzen</button>
