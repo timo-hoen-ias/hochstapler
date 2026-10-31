@@ -341,6 +341,14 @@ class Game {
         r.maxY = Math.max(r.maxY || 0, m.p[1]);
         break;
       }
+      case 'splat': {
+        const r = this.remotes.get(m.id);
+        if (!r || !Array.isArray(m.p) || this.splatStyle() === 'aus') break;
+        r.hidden = 1.4;
+        this.view.splat(r.id, m.p, this.splatStyle());
+        audio.play('splat', { pos: m.p, remote: true });
+        break;
+      }
       case 'emote': {
         const r = this.remotes.get(m.id);
         if (r) { this.toast(`${r.name}: ${m.e}`); audio.play('emote', { index: EMOTES.indexOf(m.e), pos: r.rpos }); }
@@ -708,6 +716,7 @@ class Game {
       locals.forEach((lp, k) => {
         const b = lp.body;
         const vyBefore = b.vel[1];
+        if (lp.dead > 0) return; // aufgeklatscht: liegt bis zum Neustart still
         stepBody(b, { ...inputs[k], jump: lp.jump }, this.world, step);
         trackSafe(lp.safe || (lp.safe = {}), b, this.world, step);
         lp.jump = false;
@@ -735,11 +744,17 @@ class Game {
       // Wer fällt, landet weiter unten und klettert von dort wieder hoch. Zurück zum
       // Zwischenstopp geht es erst unten auf dem Hof (oder aus der Welt heraus).
       const onYard = b.grounded && b.ground && b.ground.big && cpY > 2;
-      if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
-        this.respawn(lp, false);
-        audio.play('respawn');
+      // Unten auf dem Hof aufgeschlagen: erst aufklatschen, kurz danach zurück
+      if (lp.dead > 0) {
+        lp.dead -= dt;
         evs[k].landed = false;
-        this.toast(locals.length > 1 ? `${lp.name} abgestürzt – zurück zum ${this.cpLabel(this.cpOf(lp))}` : `Abgestürzt – zurück zum ${this.cpLabel(this.cpOf(lp))}`);
+        if (lp.dead <= 0) this.crashRespawn(lp);
+      } else if (onYard && this.splatStyle() !== 'aus') {
+        this.splat(lp);
+        evs[k].landed = false;
+      } else if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
+        this.crashRespawn(lp);
+        evs[k].landed = false;
       }
       // Weitere lokale Spieler: Sprünge/Landungen räumlich hörbar
       if (k > 0) {
@@ -755,6 +770,9 @@ class Game {
     // Mitspieler glätten
     for (const r of this.remotes.values()) {
       r.age += dt;
+      if (r.hidden > 0) r.hidden -= dt;
+      // Teleport (Neustart, Zwischenstopp): springen statt quer durchs Bild zu gleiten
+      if (Math.hypot(r.target[0] - r.rpos[0], r.target[1] - r.rpos[1], r.target[2] - r.rpos[2]) > 8) r.rpos = [...r.target];
       const lead = Math.min(r.age, 0.15);
       for (let i = 0; i < 3; i++) {
         const want = r.target[i] + (r.vel[i] || 0) * lead * (i === 1 && r.grounded ? 0 : 1);
@@ -762,7 +780,7 @@ class Game {
       }
       const an = decodeAnim(r.a, r.grounded, r.braced);
       this.view.updateAvatar(r.id, {
-        pos: r.rpos, vel: r.vel, yaw: r.yaw, grounded: r.grounded, braced: r.braced, ...an,
+        pos: r.rpos, vel: r.vel, yaw: r.yaw, grounded: r.grounded, braced: r.braced, ...an, hidden: r.hidden > 0,
         grip: an.mode === 3 ? this.hookGrip(r.rpos) : null, pull: pulls.get(r.id),
       }, dt, false);
     }
@@ -772,7 +790,7 @@ class Game {
       const b = lp.body;
       const an = decodeAnim(animCode(b));
       this.view.updateAvatar(lp.id, {
-        pos: b.pos, vel: b.vel, yaw: visYaw(b), grounded: b.grounded, braced: b.braced, ...an,
+        pos: b.pos, vel: b.vel, yaw: visYaw(b), grounded: b.grounded, braced: b.braced, ...an, hidden: lp.dead > 0,
         grip: b.hook ? b.hook.h.cur : null, pull: pulls.get(lp.id),
       }, dt, single);
     }
@@ -780,7 +798,10 @@ class Game {
     // Seile zeichnen (bei 2 gegen 2 eins je Team)
     const pairs = [];
     for (const chain of this.chains()) {
-      for (let i = 1; i < chain.length; i++) pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
+      for (let i = 1; i < chain.length; i++) {
+        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.remote?.hidden > 0)) continue;
+        pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
+      }
     }
     this.view.setRopes(pairs);
 
@@ -830,6 +851,7 @@ class Game {
     const L = PHYS.rope;
     for (const chain of this.chains()) {
       for (let i = 1; i < chain.length; i++) {
+        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.remote?.hidden > 0)) continue;
         const a = this.posOf(chain[i - 1]), b = this.posOf(chain[i]);
         const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
         const len = Math.hypot(d[0], d[1], d[2]);
@@ -875,12 +897,13 @@ class Game {
   ropeStep(dt) {
     let total = 0;
     for (const chain of this.chains()) chain.forEach((c, idx) => {
-      if (!c.local) return;
+      if (!c.local || c.local.dead > 0) return;
       const body = c.local.body;
       let tension = 0;
       for (const j of [idx - 1, idx + 1]) {
         if (j < 0 || j >= chain.length) continue;
         const n = chain[j];
+        if (n.local?.dead > 0 || n.remote?.hidden > 0) continue; // aufgeklatscht: Seil ist ab
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
         if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt));
         else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt));
@@ -893,7 +916,35 @@ class Game {
 
   // Zurück zum Zwischenstopp des Teams (oder zum Start). Jeder Spieler bekommt
   // seinen eigenen Platz auf der Plattform, damit niemand ineinander steht.
+  // Absturz: zurück zum Zwischenstopp, mit Meldung
+  crashRespawn(lp) {
+    this.respawn(lp, false);
+    audio.play('respawn');
+    const n = this.locals.length > 1 ? `${lp.name} abgestürzt` : 'Abgestürzt';
+    this.toast(`${n} – zurück zum ${this.cpLabel(this.cpOf(lp))}`);
+  }
+
+  splatStyle() {
+    const v = settings.get().splat;
+    return v === 'farbe' || v === 'aus' ? v : 'blut';
+  }
+
+  // Aufklatschen: Figur platzt, Pfütze bleibt; Mitspieler sehen es auch
+  splat(lp) {
+    const b = lp.body;
+    const p = [...b.pos];
+    lp.dead = 1.4;
+    b.vel = [0, 0, 0];
+    releaseGrips(b);
+    this.view.splat(lp.id, p, this.splatStyle());
+    audio.play('splat', { pos: lp === this.p1 ? null : p });
+    this.view.shake = Math.max(this.view.shake, lp === this.p1 ? 1 : 0.5);
+    const r2 = (v) => Math.round(v * 100) / 100;
+    (lp.net || this.net).send({ t: 'splat', p: p.map(r2) });
+  }
+
   respawn(lp, toStart) {
+    lp.dead = 0;
     const cp = this.level.checkpoints[toStart ? 0 : this.cpOf(lp)];
     const pos = [...cp.pos];
     const slot = lp.slot || 0;
@@ -940,6 +991,7 @@ class Game {
       b.grounded = false;
       releaseGrips(b);
       g.safe = { spot: { ...spot }, calm: 0 };
+      g.dead = 0; // wer gerade aufgeklatscht ist, kommt direkt mit
     });
   }
 

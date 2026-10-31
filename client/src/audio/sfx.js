@@ -153,6 +153,23 @@ export class Sfx {
     this._finish([out], 0.3);
   }
 
+  // Aufklatschen: dumpfer Aufprall, nasses Platschen, Helm scheppert, Nachtropfen
+  splat(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = this._out(o, 0.9);
+    const out = nodes[0];
+    this._tone(t, out, { f: 95, f2: 32, peak: 0.9, a: 0.003, d: 0.35 });
+    this._burst(t, out, { kind: 'brown', type: 'lowpass', f: 900, f2: 200, peak: 0.9, d: 0.22 });
+    for (let i = 0; i < 5; i++) {
+      const f = rand(500, 1400);
+      this._burst(t + 0.015 + i * rand(0.02, 0.05), out, { kind: 'pink', type: 'bandpass', f, f2: f * 0.4, q: 3, peak: 0.45 / (1 + i * 0.4), d: rand(0.06, 0.14) });
+    }
+    this._ring(t + 0.35, out, 880, 0.08, 0.3, [1, 2.7, 5.2]);
+    this._ring(t + 0.62, out, 930, 0.05, 0.25, [1, 2.7, 5.2]);
+    for (let i = 0; i < 4; i++) this._tone(t + 0.5 + i * rand(0.15, 0.3), out, { type: 'sine', f: rand(900, 1300), f2: rand(400, 600), peak: 0.05, a: 0.002, d: 0.06 });
+    this._finish(nodes, 2);
+  }
+
   respawn() {
     const t = this.c.currentTime;
     const out = this.e.out('sfx', null, 0.4);

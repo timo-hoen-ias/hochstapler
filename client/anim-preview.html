@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { Rig, MODE } from './src/anim.js';
 import { makeTextures } from './src/textures.js';
+import { Splats } from './src/splat.js';
 
 const W = 960, H = 540;
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -31,7 +32,16 @@ const mk = (c) => ({
 
 // Szenen: jede liefert pro Zeitpunkt den Spielerzustand
 const G = 26, JUMP = 9.2;
+const splats = new Splats(scene);
+const klatsch = (style) => ({ label: style === 'blut' ? 'Absturz: Aufklatschen (Blut)' : 'Absturz: Aufklatschen (Farbklecks)', len: 5.5, cam: [6.5, 3.4, 5], look: [0, 0.6, 0],
+  state(t, s) {
+    const y = Math.max(0, 9 - G * t * t / 2);
+    if (y <= 0 && !s.hit) { s.hit = true; s.sq = 0; }
+    return { pos: [0, y, 0], vel: [0, y > 0 ? -G * t : 0, 0], yaw: 0.6, grounded: y <= 0, mode: y > 0 ? 1 : 0, splat: style };
+  } });
 const scenes = {
+  klatsch: klatsch('blut'),
+  farbe: klatsch('farbe'),
   lauf: { label: 'Stehen → Gehen → Rennen → Stopp', len: 7, cam: [6, 2.2, 3], look: [0, 1, 3],
     state(t, s) {
       const v = t < 1 ? 0 : t < 3 ? 2 : t < 5.5 ? 6 : 0;
@@ -103,7 +113,17 @@ window.step = (dt) => {
     if (i === 1) s.pos = [s.pos[0] + 1.2, s.pos[1], s.pos[2]];
     if (i === 0 && sc.state2) s.pos = [s.pos[0] - 2.2, s.pos[1], s.pos[2]];
     r.update(s, dt);
+    // Aufklatschen wie im Spiel: kurz platt, dann platzen
+    const S = st[i];
+    if (s.splat && S.hit) {
+      S.sq += dt;
+      const u = Math.min(1, S.sq / 0.09);
+      r.root.scale.set(1 + 0.7 * u, 1 - 0.85 * u, 1 + 0.7 * u);
+      if (S.sq >= 0.09 && !S.done) { S.done = true; splats.spawn([0, 0, 0], '#e8562a', s.splat); }
+      r.root.visible = !S.done;
+    }
   });
+  splats.update(dt);
   const f = sc.follow ? rigs[0].root.position.z : 0;
   cam.position.set(sc.cam[0], sc.cam[1], sc.cam[2] + f);
   cam.lookAt(sc.look[0], sc.look[1], sc.look[2] + (sc.follow ? f - 3 : 0));

@@ -27,7 +27,7 @@ gleichzeitig unterstützt; das HUD zeigt Hinweise für das zuletzt benutzte Ger�
 Menüs lassen sich komplett mit dem Controller bedienen (Steuerkreuz/Stick, A bestätigt,
 B zurück, ←/→ ändert Werte). Im **Optionsmenü**: Grafikqualität (Niedrig/Mittel/Hoch),
 Sichtfeld, Empfindlichkeit für Maus/Touch und Controller, Y-Achse invertieren,
-Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln, Lautstärken sowie
+Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln, Absturz-Effekt (Blut/Farbklecks/aus), Lautstärken sowie
 Lichtstrahlen (Godrays), Tiefenunschärfe, Distanznebel (leicht/normal/dicht) und Höhennebel.
 Einstellungen werden im Browser gespeichert.
 
@@ -85,6 +85,14 @@ im Raum gespeichert (Durable Object) und die Lampe wird grün.
   Die Schichtzeit läuft nur, solange jemand im Raum ist.
 - „Neue Schicht“ im Zielbildschirm setzt Fortschritt und Zeit zurück.
 
+## Absturz
+
+Wer ganz unten auf dem Hof aufschlägt, klatscht auf: die Figur wird platt gedrückt
+und platzt in Spritzer, Westenfetzen und einen hüpfenden Helm, darunter bleibt eine
+große Pfütze, die nach ~14 s verblasst (`client/src/splat.js`). Nach 1,4 s geht es
+zurück zum Zwischenstopp. Mitspieler sehen und hören es auch (Nachricht `splat`).
+In den Optionen: Blut, harmloser Farbklecks in Spielerfarbe oder aus.
+
 ## Seil-Regeln
 
 Nachbarn in der Reihenfolge des Beitretens sind mit 4,5 m Seil verbunden.
@@ -107,7 +115,7 @@ Ohne Server läuft das Spiel automatisch im Solo-Modus.
 
 Figuren-Animationen ansehen (ohne Spiel, mit `npm run dev`):
 `http://localhost:5173/anim-preview.html?s=kante` – weitere Szenen: `lauf`, `sprung`,
-`leiter`, `haken`, `seil`, `strom`.
+`leiter`, `haken`, `seil`, `strom`, `klatsch`, `farbe`.
 
 ## Figuren-Animation
 

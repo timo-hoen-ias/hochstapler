@@ -23,6 +23,8 @@ const OPTIONS = [
   { key: 'touch', label: 'Touch-Steuerung', type: 'choice', choices: [['auto', 'Automatisch'], ['on', 'An'], ['off', 'Aus']] },
   { key: 'hints', label: 'Tastenhinweise einblenden', type: 'toggle' },
   { key: 'shake', label: 'Kamerawackeln', type: 'toggle' },
+  { key: 'splat', label: 'Absturz-Effekt', type: 'choice', choices: [['blut', 'Blut'], ['farbe', 'Farbklecks'], ['aus', 'Aus']],
+    hint: 'Was passiert, wenn jemand ganz unten aufschlägt. Farbklecks: harmlose Farbe in Spielerfarbe.' },
   { key: 'splitscreen', label: 'Lokaler Koop: geteilter Bildschirm', type: 'toggle',
     hint: 'Aus: eine gemeinsame Kamera, die alle lokalen Spieler im Bild hält.' },
   { key: 'muted', label: 'Ton (Taste M)', type: 'audioMute' },
