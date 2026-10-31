@@ -141,3 +141,5 @@ body.touch-ui #brace { bottom: auto; top: calc(30% + 36px); }
   .tzoom { bottom: calc(max(24px, env(safe-area-inset-bottom)) + 84px); }
   #hud-players { display: none; }
 }
+/* Größere Trefferfläche für den Sprung-Knopf: knapp daneben getippt zählt trotzdem */
+.tbtn.jump::after { content: ''; position: absolute; inset: -18px; border-radius: 50%; }
