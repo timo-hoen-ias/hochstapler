@@ -6,7 +6,8 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeTextures, textCanvas } from './textures.js';
-import { settings, QUALITY } from './settings.js';
+import { settings, QUALITY, effectOn } from './settings.js';
+import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -68,7 +69,8 @@ export class Renderer {
     this.shake = 0;
     this.applyQuality();
     settings.onChange((cur, patch) => {
-      if ('quality' in patch) this.applyQuality();
+      if ('quality' in patch || 'godrays' in patch || 'dof' in patch) this.applyQuality();
+      if ('fog' in patch) this.applyFog();
       if ('fov' in patch) { this.camera.fov = cur.fov; this.camera.updateProjectionMatrix(); }
     });
     window.addEventListener('resize', () => this.resize());
@@ -105,11 +107,22 @@ export class Renderer {
 
     this.composer?.dispose();
     this.composer = null;
-    if (q.post) {
+    this.atmos?.dispose();
+    this.atmos = null;
+    const godrays = effectOn('godrays'), dof = effectOn('dof');
+    if (q.post || godrays || dof) {
       const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
       const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: q.antialias ? 4 : 0 });
+      // Tiefe wird für Godrays (Himmelsmaske) und Tiefenunschärfe gebraucht
+      if (godrays || dof) rt.depthTexture = new THREE.DepthTexture(size.x, size.y);
       const c = new EffectComposer(this.renderer, rt);
       c.addPass(new RenderPass(this.scene, this.camera));
+      if (godrays || dof) {
+        // direkt nach dem RenderPass, damit readBuffer.depthTexture die Szenentiefe enthält
+        this.atmos = new AtmosPass(this.camera, this.sunDir);
+        this.atmos.configure({ godrays, dof, samples: q.grSamples });
+        c.addPass(this.atmos);
+      }
       if (q.ao) {
         const ao = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
         ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1 });
@@ -209,6 +222,27 @@ export class Renderer {
     pmrem.dispose();
 
     this.scene.fog = new THREE.Fog(0xe8b48a, 70, 300);
+    this.applyFog();
+  }
+
+  // Distanznebel-Stärke aus den Optionen
+  applyFog() {
+    const f = { light: [110, 420], normal: [70, 340], dense: [25, 170] }[settings.get().fog] || [70, 340];
+    this.scene.fog.near = f[0];
+    this.scene.fog.far = f[1];
+  }
+
+  // Höhennebel folgt dem Spieler: Unter dir verschwindet die Tiefe im Dunst
+  updateFog(dt, focus) {
+    const u = fogUniforms;
+    this.camera.updateMatrixWorld();
+    u.fxCamWorld.value.copy(this.camera.matrixWorld);
+    const target = focus[1] - 14;
+    this.fogBase = this.fogBase === undefined ? target : this.fogBase + (target - this.fogBase) * Math.min(1, dt * 0.8);
+    u.fxHeight.value.set(settings.get().heightFog ? 0.012 : 0, 0.06, this.fogBase);
+    u.fxHeightColor.value.copy(this.scene.fog.color).lerp(new THREE.Color(0xc4cbe6), 0.45);
+    u.fxSunDir.value.copy(this.sunDir);
+    u.fxSunColor.value.setRGB(0.4, 0.24, 0.1);
   }
 
   setupLights() {
@@ -711,6 +745,8 @@ export class Renderer {
     }
     this.shake *= Math.exp(-dt * 9);
 
+    patchFogMaterials(this.scene);
+    this.updateFog(dt, focus);
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);
   }
