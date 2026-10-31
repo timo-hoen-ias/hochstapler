@@ -43,6 +43,7 @@ export class Renderer {
     this.level = level;
     const s = settings.get();
     this.renderer = new THREE.WebGLRenderer({ antialias: s.quality !== 'low', powerPreference: 'high-performance' });
+    this.renderer.localClippingEnabled = true; // Blutlachen an Plattformkanten abschneiden
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -711,7 +712,7 @@ export class Renderer {
       av.g.scale.set(1 + 0.7 * u, 1 - 0.85 * u, 1 + 0.7 * u);
       if (sp.t >= 0.09 && !sp.done) {
         sp.done = true;
-        this.splats.spawn(sp.pos, av.color, sp.style, QUALITY[settings.get().quality] === QUALITY.low);
+        this.splats.spawn(sp.pos, av.color, sp.style, sp.area, QUALITY[settings.get().quality] === QUALITY.low);
       }
       if (!st.hidden && sp.t > 0.3) { av.splat = null; av.g.scale.set(1, 1, 1); }
     }
@@ -719,11 +720,12 @@ export class Renderer {
     return ev;
   }
 
-  // Figur klatscht am Fußpunkt pos auf (style: 'blut' | 'farbe')
-  splat(id, pos, style) {
+  // Figur klatscht am Fußpunkt pos auf (style: 'blut' | 'farbe'),
+  // area = Plattform [minX, maxX, minZ, maxZ] oder null (großer Boden)
+  splat(id, pos, style, area = null) {
     const av = this.avatars.get(id);
-    if (av) av.splat = { t: 0, pos: [...pos], style, done: false };
-    else this.splats.spawn(pos, '#ff7a1a', style);
+    if (av) av.splat = { t: 0, pos: [...pos], style, area, done: false };
+    else this.splats.spawn(pos, '#ff7a1a', style, area);
   }
 
   // ───────── Seile ─────────

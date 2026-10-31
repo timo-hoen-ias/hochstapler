@@ -11,6 +11,9 @@ import { audio } from './audio/index.js';
 import { animCode, decodeAnim } from './anim.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 
+// Wer tiefer als das auf eine Plattform fällt, zerplatzt (m)
+const SPLAT_DROP = 10;
+
 // Blickrichtung für die Figur: an einer Kante zur Wand gedreht
 function visYaw(b) {
   return b.hang ? Math.atan2(b.hang.n[0], b.hang.n[1]) : b.yaw;
@@ -346,7 +349,7 @@ class Game {
         const r = this.remotes.get(m.id);
         if (!r || !Array.isArray(m.p) || this.splatStyle() === 'aus') break;
         r.hidden = 1.4;
-        this.view.splat(r.id, m.p, this.splatStyle());
+        this.view.splat(r.id, m.p, this.splatStyle(), Array.isArray(m.g) && m.g.length === 4 ? m.g : null);
         audio.play('splat', { pos: m.p, remote: true });
         break;
       }
@@ -744,10 +747,18 @@ class Game {
       } else if (onYard && this.splatStyle() !== 'aus') {
         this.splat(lp);
         evs[k].landed = false;
+      } else if (b.grounded && b.ground && (lp.airTop ?? p[1]) - p[1] > SPLAT_DROP && this.splatStyle() !== 'aus') {
+        // Aus zu großer Höhe auf eine Plattform gefallen: auch dort zerplatzen
+        const g = b.ground;
+        this.splat(lp, g.big ? null : [g.min[0], g.max[0], g.min[2], g.max[2]]);
+        evs[k].landed = false;
       } else if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
         this.crashRespawn(lp);
         evs[k].landed = false;
       }
+      // Höchster Punkt seit dem letzten Halt (Boden, Kante, Haken, Leiter) für die Fallhöhe
+      if (b.grounded || b.hang || b.hook || b.ladder || lp.dead > 0) lp.airTop = b.pos[1];
+      else lp.airTop = Math.max(lp.airTop ?? b.pos[1], b.pos[1]);
       // Weitere lokale Spieler: Sprünge/Landungen räumlich hörbar
       if (k > 0) {
         if (evs[k].jumped) audio.remoteJump(b.pos);
@@ -922,21 +933,23 @@ class Game {
   }
 
   // Aufklatschen: Figur platzt, Pfütze bleibt; Mitspieler sehen es auch
-  splat(lp) {
+  // area: Plattform [minX, maxX, minZ, maxZ] (null = Hof)
+  splat(lp, area = null) {
     const b = lp.body;
     const p = [...b.pos];
     lp.dead = 1.4;
     b.vel = [0, 0, 0];
     releaseGrips(b);
-    this.view.splat(lp.id, p, this.splatStyle());
+    this.view.splat(lp.id, p, this.splatStyle(), area);
     audio.play('splat', { pos: lp === this.p1 ? null : p });
     this.view.shake = Math.max(this.view.shake, lp === this.p1 ? 1 : 0.5);
     const r2 = (v) => Math.round(v * 100) / 100;
-    (lp.net || this.net).send({ t: 'splat', p: p.map(r2) });
+    (lp.net || this.net).send({ t: 'splat', p: p.map(r2), g: area ? area.map(r2) : null });
   }
 
   respawn(lp, toStart) {
     lp.dead = 0;
+    lp.airTop = undefined;
     const cp = this.level.checkpoints[toStart ? 0 : this.cpOf(lp)];
     const pos = [...cp.pos];
     const slot = lp.slot || 0;
