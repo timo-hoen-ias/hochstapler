@@ -119,7 +119,7 @@ class Game {
     this.view = new Renderer($('app'), this.level);
     this.locals = [];
     this.remotes = new Map();
-    this.camYaw = 0;
+    this.camYaw = 0; // gemeinsame Kamera (ein Spieler oder Splitscreen aus)
     this.camPitch = 0.35;
     this.camDist = 7.5;
     this.paused = false;
@@ -176,6 +176,8 @@ class Game {
     const lp = {
       id: 'local' + slot + '-' + Math.random().toString(36).slice(2, 6), name, slot, color: LOCAL_COLORS[slot % LOCAL_COLORS.length],
       body: createBody(this.level.spawn), input: null, net: null, jump: false, tension: 0, sendAcc: 0, online: false, team: 0,
+      // eigene Kamera für den Splitscreen
+      cam: { yaw: this.camYaw || 0, pitch: 0.35, dist: 7.5, smooth: undefined },
     };
     this.locals.push(lp);
     this.view.createAvatar(lp.id, name, lp.color);
@@ -623,17 +625,34 @@ class Game {
     $('crosshair').classList.toggle('hidden', settings.touchEnabled() || this.locals.length > 1);
   }
 
-  // Alle lokalen Spieler abfragen. Die Kamera ist gemeinsam: alle dürfen sie drehen,
-  // gelaufen wird relativ zur Kamera.
+  // Mehrere Spieler an einem Gerät: geteilter Bildschirm (abschaltbar in den Optionen)
+  split() { return this.locals.length > 1 && settings.get().splitscreen !== false; }
+
+  // Alle lokalen Spieler abfragen. Splitscreen: jeder dreht seine eigene Kamera.
+  // Sonst ist die Kamera gemeinsam und alle dürfen sie drehen. Gelaufen wird relativ
+  // zur Kamera, die der Spieler sieht.
   readInputs(dt) {
     const polled = this.locals.map((lp) => lp.input.poll(dt));
-    let lookX = 0, lookY = 0, zoom = 0;
-    for (const i of polled) { lookX += i.lookX; lookY += i.lookY; zoom += i.zoom; }
-    this.camYaw += lookX;
-    this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + lookY));
-    if (zoom) this.camDist = Math.min(16, Math.max(3, this.camDist + zoom));
-    const sy = Math.sin(this.camYaw), cy = Math.cos(this.camYaw);
-    return polled.map((i) => {
+    const split = this.split();
+    if (split) {
+      this.locals.forEach((lp, k) => {
+        const i = polled[k], c = lp.cam;
+        c.yaw += i.lookX;
+        c.pitch = Math.min(1.35, Math.max(-0.5, c.pitch + i.lookY));
+        if (i.zoom) c.dist = Math.min(16, Math.max(3, c.dist + i.zoom));
+      });
+    } else {
+      let lookX = 0, lookY = 0, zoom = 0;
+      for (const i of polled) { lookX += i.lookX; lookY += i.lookY; zoom += i.zoom; }
+      this.camYaw += lookX;
+      this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + lookY));
+      if (zoom) this.camDist = Math.min(16, Math.max(3, this.camDist + zoom));
+      // Beim Wechsel in den Splitscreen startet jeder mit dem gemeinsamen Blick
+      for (const lp of this.locals) Object.assign(lp.cam, { yaw: this.camYaw, pitch: this.camPitch, dist: this.camDist });
+    }
+    return polled.map((i, k) => {
+      const yaw = split ? this.locals[k].cam.yaw : this.camYaw;
+      const sy = Math.sin(yaw), cy = Math.cos(yaw);
       const fx = i.forward, rx = i.right;
       // Kamera schaut entlang (-sin yaw, -cos yaw)
       let x = -sy * fx + cy * rx;
@@ -749,17 +768,19 @@ class Game {
       }
     }
 
-    this.updateCamera(dt);
-    const cp = this.view.camera.position;
+    const views = this.updateCamera(dt);
+    this.updateSplitLabels(views);
+    // Hören wie Spieler 1: mit dessen Kamera
+    const cp = views ? views[0].pos : this.view.camera.position.toArray();
     const p1 = this.p1.body;
     audio.update({
       dt, time: tNow, world: this.world, body: p1, tension: this.tension, ...evs[0],
-      camPos: [cp.x, cp.y, cp.z], camYaw: this.camYaw,
+      camPos: cp, camYaw: views ? this.p1.cam.yaw : this.camYaw,
       section: sectionAtHeight(this.level, Math.max(0, this.topY())),
     });
     this.hudAcc += dt;
     if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
-    this.view.update(dt, this.world, p1.pos);
+    this.view.update(dt, this.world, views ? this.cameraFocus().target : p1.pos, views);
     // Erst nach Spieler 1 (der sich in readInputs seinen Controller nimmt): freie Controller dürfen einsteigen
     if (!this.paused && !this.finished) this.pollNewPads();
   }
@@ -864,7 +885,43 @@ class Game {
     return { target: c, extra: Math.max(0, spread * 0.9 - 1) };
   }
 
+  // Kamerapose für einen Blickpunkt: Richtung aus yaw/pitch, Abstand per Kamera-Kollision.
+  // c hält den geglätteten Abstand (smooth) über die Frames.
+  pose(c, target, want, dt) {
+    const cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+    const dir = [Math.sin(c.yaw) * cp, sp, Math.cos(c.yaw) * cp];
+    // Kamera-Kollision: Strahl vom Kopf zur Wunschposition gegen alle Boxen (inkl. Boden),
+    // jeweils um den Kamera-Radius vergrößert, damit auch die Near-Plane nicht in Wände ragt.
+    const dist = this.cameraRay(target, dir, want);
+    // Reinziehen sofort (sonst sieht man kurz durch den Boden), rauszoomen weich
+    if (c.smooth === undefined || dist < c.smooth) c.smooth = dist;
+    else c.smooth += (dist - c.smooth) * Math.min(1, dt * 4);
+    return {
+      pos: [target[0] + dir[0] * c.smooth, target[1] + dir[1] * c.smooth, target[2] + dir[2] * c.smooth],
+      look: [target[0], target[1], target[2]],
+    };
+  }
+
+  // Gemeinsame Kamera (ein Spieler, oder Splitscreen aus): Pose in view.camera.
+  // Splitscreen: liefert eine Ansicht je lokalem Spieler; bei drei Spielern zeigt das
+  // vierte Viertel das ganze Team.
   updateCamera(dt) {
+    if (this.split()) {
+      const views = this.locals.map((lp) => {
+        const p = lp.body.pos;
+        return { ...this.pose(lp.cam, [p[0], p[1] + 1.5, p[2]], lp.cam.dist, dt), focus: p };
+      });
+      if (views.length === 3) {
+        const f = this.cameraFocus();
+        this.overview = this.overview || { yaw: 0, pitch: 0.45, dist: 10, smooth: undefined };
+        // Übersicht dreht langsam mit Spieler 1 mit
+        let d = this.locals[0].cam.yaw - this.overview.yaw;
+        d = Math.atan2(Math.sin(d), Math.cos(d));
+        this.overview.yaw += d * Math.min(1, dt * 0.8);
+        views.push({ ...this.pose(this.overview, f.target, Math.min(24, 10 + f.extra), dt), focus: this.locals[0].body.pos });
+      }
+      return views;
+    }
     const f = this.cameraFocus();
     let target = f.target;
     if (this.locals.length > 1) {
@@ -876,17 +933,27 @@ class Game {
     } else this.camFocus = null;
     this.camExtra = this.camExtra === undefined ? f.extra : this.camExtra + (f.extra - this.camExtra) * Math.min(1, dt * 3);
     const want = Math.min(24, this.camDist + this.camExtra);
-    const cp = Math.cos(this.camPitch), sp = Math.sin(this.camPitch);
-    const dir = [Math.sin(this.camYaw) * cp, sp, Math.cos(this.camYaw) * cp];
-    // Kamera-Kollision: Strahl vom Kopf zur Wunschposition gegen alle Boxen (inkl. Boden),
-    // jeweils um den Kamera-Radius vergrößert, damit auch die Near-Plane nicht in Wände ragt.
-    const dist = this.cameraRay(target, dir, want);
-    // Reinziehen sofort (sonst sieht man kurz durch den Boden), rauszoomen weich
-    if (this.smoothDist === undefined || dist < this.smoothDist) this.smoothDist = dist;
-    else this.smoothDist += (dist - this.smoothDist) * Math.min(1, dt * 4);
+    this.shared = this.shared || { smooth: undefined };
+    Object.assign(this.shared, { yaw: this.camYaw, pitch: this.camPitch });
+    const pose = this.pose(this.shared, target, want, dt);
     const cam = this.view.camera;
-    cam.position.set(target[0] + dir[0] * this.smoothDist, target[1] + dir[1] * this.smoothDist, target[2] + dir[2] * this.smoothDist);
-    cam.lookAt(target[0], target[1], target[2]);
+    cam.position.set(...pose.pos);
+    cam.lookAt(...pose.look);
+    return null;
+  }
+
+  // Namen der Spieler in ihren Bildschirmteilen und Trennlinien
+  updateSplitLabels(views) {
+    const el = $('split');
+    const key = views ? this.locals.map((l) => l.name + l.color).join('|') + views.length : '';
+    if (key === this.splitLabelKey) return;
+    this.splitLabelKey = key;
+    el.classList.toggle('hidden', !views);
+    if (!views) { el.innerHTML = ''; return; }
+    el.className = views.length === 2 ? 'split-2' : 'split-4';
+    const tags = this.locals.map((l) => `<span class="split-tag" style="--c:${l.color}">${esc(l.name)}</span>`);
+    if (views.length === 4 && this.locals.length === 3) tags.push('<span class="split-tag" style="--c:#fff">Team</span>');
+    el.innerHTML = tags.map((t) => `<div class="split-cell">${t}</div>`).join('');
   }
 
   cameraRay(o, dir, len) {
