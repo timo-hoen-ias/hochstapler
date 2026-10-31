@@ -210,9 +210,10 @@ export class Sfx {
     this.creakLfo.frequency.setTargetAtTime(7 + k * 9 + Math.random() * 3, t, 0.1);
   }
 
-  setFall(speed, vy) {
+  // Fallwind und Sturmböen teilen sich ein Rauschen. gust = Böenstärke 0..1 am Spieler
+  setFall(speed, vy, gust = 0) {
     const t = this.c.currentTime;
-    const k = vy < -6 ? clamp((speed - 9) / 18) : 0;
+    const k = Math.max(vy < -6 ? clamp((speed - 9) / 18) : 0, gust > 0 ? 0.25 + 0.6 * gust : 0);
     this.windG.gain.setTargetAtTime(k * 0.4, t, 0.12);
     this.windF.frequency.setTargetAtTime(350 + k * 1300, t, 0.15);
   }

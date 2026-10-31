@@ -26,6 +26,8 @@ export const PHYS = {
   hookAssistAccel: 12,
   hookPump: 9,      // Schwungkraft am Haken
   hookJump: 5.5,    // Absprung vom Haken
+  windGround: 0.4,  // Wind: Abdrift (m/s je Einheit Windstärke) am Boden …
+  windAir: 0.6,     // … und in der Luft
   ladderSpeed: 3.4,
   slideAccel: 15,
   slideMax: 12,
@@ -457,6 +459,16 @@ export function stepBody(body, input, world, dt) {
   const onRound = g0 && g0.round;
   let wantX = body.braced ? 0 : input.x * PHYS.speed;
   let wantZ = body.braced ? 0 : input.z * PHYS.speed;
+  // Wind: Böen treiben den Spieler ab. Als Zielgeschwindigkeit eingerechnet, sonst hebt die
+  // Laufsteuerung (70 m/s²) die Windkraft sofort wieder auf. Festhalten (Shift) schützt.
+  const wind = world.zoneAt(body.pos, true);
+  body.inWind = wind ? world.gust(wind) : 0;
+  let windy = false;
+  if (wind && !body.braced) {
+    const f = body.inWind * (body.grounded ? PHYS.windGround : PHYS.windAir);
+    wantX += wind.push[0] * f; wantZ += wind.push[2] * f;
+    windy = body.inWind > 0.3;
+  }
   // In der Luft Schwung behalten (Rutsche, Haken, Luftpolster): nur die Richtung lenken
   const hs = Math.hypot(body.vel[0], body.vel[2]);
   if (!body.grounded && hs > PHYS.speed && (input.x || input.z)) {
@@ -474,7 +486,7 @@ export function stepBody(body, input, world, dt) {
     // In der Luft nur sanft abbremsen, damit Seilschwünge erhalten bleiben
     const idle = input.x === 0 && input.z === 0 && !body.braced;
     const slick = onIce || onSlide;
-    const airKeep = idle && (!body.grounded || slick) ? (slick ? 0.05 : 0.15) : 1;
+    const airKeep = idle && !windy && (!body.grounded || slick) ? (slick ? 0.05 : 0.15) : 1;
     body.vel[0] += dvx * k * airKeep;
     body.vel[2] += dvz * k * airKeep;
   }
@@ -510,13 +522,6 @@ export function stepBody(body, input, world, dt) {
   const zone = world.zoneAt(body.pos);
   body.inFan = !!zone;
   if (zone && !body.braced) body.vel[1] = Math.min(body.vel[1] + zone.lift * dt, PHYS.fanMax);
-  // Wind: seitliche Böen, Festhalten schützt
-  const wind = world.zoneAt(body.pos, true);
-  body.inWind = wind ? world.gust(wind) : 0;
-  if (wind && !body.braced) {
-    const f = body.inWind * (body.grounded ? 0.55 : 1) * dt;
-    body.vel[0] += wind.push[0] * f; body.vel[2] += wind.push[2] * f;
-  }
 
   body.vel[1] = Math.max(body.vel[1] - PHYS.gravity * dt, -PHYS.maxFall);
 
