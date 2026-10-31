@@ -27,7 +27,8 @@ gleichzeitig unterstützt; das HUD zeigt Hinweise für das zuletzt benutzte Ger�
 Menüs lassen sich komplett mit dem Controller bedienen (Steuerkreuz/Stick, A bestätigt,
 B zurück, ←/→ ändert Werte). Im **Optionsmenü**: Grafikqualität (Niedrig/Mittel/Hoch),
 Sichtfeld, Empfindlichkeit für Maus/Touch und Controller, Y-Achse invertieren,
-Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln und Lautstärken.
+Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln, Lautstärken sowie
+Lichtstrahlen (Godrays), Tiefenunschärfe, Distanznebel (leicht/normal/dicht) und Höhennebel.
 Einstellungen werden im Browser gespeichert.
 
 ## Aufbau des Turms (~1090 m, 42 Abschnitte)
