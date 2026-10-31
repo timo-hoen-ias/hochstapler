@@ -127,6 +127,14 @@ export class Renderer {
         const ao = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
         ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.5, thickness: 1, scale: 1 });
         ao.blendIntensity = 0.85;
+        // Namensschilder (Sprites) nicht in die AO-Tiefe zeichnen: mit Override-Material würden
+        // sie als schräge, dunkle Vierecke erscheinen
+        const aoRender = ao.render.bind(ao);
+        ao.render = (...args) => {
+          const shown = [];
+          for (const av of this.avatars.values()) if (av.tag.visible) { av.tag.visible = false; shown.push(av.tag); }
+          try { aoRender(...args); } finally { for (const t of shown) t.visible = true; }
+        };
         c.addPass(ao);
       }
       if (q.bloom) c.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.5, 0.88));
@@ -604,14 +612,19 @@ export class Renderer {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 64;
     const x = c.getContext('2d');
-    x.fillStyle = 'rgba(15,20,30,0.7)';
-    x.beginPath(); x.roundRect(4, 8, 248, 48, 14); x.fill();
-    x.fillStyle = color; x.fillRect(16, 22, 18, 18);
-    x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'; x.textAlign = 'center';
-    x.fillText(name, 140, 42);
+    // Nur der Name (mit Kontur für Lesbarkeit), kein Hintergrundschild
+    x.font = 'bold 30px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineJoin = 'round';
+    x.lineWidth = 6; x.strokeStyle = 'rgba(10,12,20,0.85)';
+    x.strokeText(name, 128, 34);
+    x.fillStyle = '#fff'; x.fillText(name, 128, 34);
+    // Farbstrich unter dem Namen = Spielerfarbe
+    const w = Math.min(200, x.measureText(name).width);
+    x.fillStyle = 'rgba(10,12,20,0.85)'; x.fillRect(128 - w / 2 - 2, 52, w + 4, 8);
+    x.fillStyle = color; x.fillRect(128 - w / 2, 54, w, 4);
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = THREE.SRGBColorSpace;
-    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, depthWrite: false }));
     s.scale.set(1.6, 0.4, 1);
     s.renderOrder = 10;
     return s;
