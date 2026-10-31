@@ -12,6 +12,7 @@ export class Net {
   }
 
   connect() {
+    if (!this.room) { setTimeout(() => this.h.offline?.(false), 0); return; }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const url = `${proto}://${location.host}/ws?room=${encodeURIComponent(this.room)}`;
     let ws;

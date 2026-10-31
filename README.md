@@ -10,14 +10,25 @@ Gebaut mit **Three.js** (Client), **Cloudflare Workers** (Auslieferung) und
 
 ## Steuerung
 
-| Taste | Aktion |
-| --- | --- |
-| W A S D / Pfeile | laufen |
-| Leertaste | springen |
-| Shift oder rechte Maustaste | festhalten (macht dich zum Anker, nur am Boden) |
-| Maus / Mausrad | Kamera / Zoom |
-| 1 · 2 · 3 | Zurufe: „Warte!“, „Los, springen!“, „Festhalten!“ |
-| M | Ton an/aus |
+Tastatur/Maus, Controller (Gamepad-API, Xbox-/PlayStation-Layout) und Touch werden
+gleichzeitig unterstützt; das HUD zeigt Hinweise für das zuletzt benutzte Gerät.
+
+| Aktion | Tastatur & Maus | Controller | Touch |
+| --- | --- | --- | --- |
+| laufen | W A S D / Pfeile | linker Stick | Joystick (linke Bildhälfte) |
+| Kamera | Maus, Q/E/R/F | rechter Stick | wischen (rechte Bildhälfte) |
+| springen | Leertaste | A / ✕ | ⤒ |
+| festhalten (Anker, nur am Boden) | Shift / rechte Maustaste | B, RB oder RT | ✊ halten |
+| Zurufe | 1 · 2 · 3 | X · Y · LB | Buttons |
+| Zoom | Mausrad | Steuerkreuz ↑↓ | ＋ / − |
+| Pause | Esc | Start | ❚❚ |
+| Ton an/aus | M | – | Optionen |
+
+Menüs lassen sich komplett mit dem Controller bedienen (Steuerkreuz/Stick, A bestätigt,
+B zurück, ←/→ ändert Werte). Im **Optionsmenü**: Grafikqualität (Niedrig/Mittel/Hoch),
+Sichtfeld, Empfindlichkeit für Maus/Touch und Controller, Y-Achse invertieren,
+Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln und Lautstärken.
+Einstellungen werden im Browser gespeichert.
 
 ## Die sechs Abschnitte
 

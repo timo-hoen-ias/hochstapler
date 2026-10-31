@@ -2,6 +2,9 @@ import { buildLevel, SECTIONS, sectionAtHeight } from './level.js';
 import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
+import { Input, EMOTES } from './input.js';
+import { Menu } from './menu.js';
+import { settings } from './settings.js';
 import { audio } from './audio/index.js';
 
 const $ = (id) => document.getElementById(id);
@@ -17,18 +20,35 @@ function randomCode() {
   return s;
 }
 
-// ───────── Lobby ─────────
+// ───────── Hauptmenü ─────────
 const params = new URLSearchParams(location.search);
 $('name').value = params.get('name') || store.get('hochstapler.name') || '';
 $('room').value = (params.get('room') || randomCode()).toUpperCase();
-$('newroom').onclick = () => { $('room').value = randomCode(); };
-$('join').onclick = start;
-for (const id of ['name', 'room']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
-if (params.get('autostart')) setTimeout(start, 0);
+if (params.get('room')) {
+  $('invite').textContent = `Du wurdest in Raum ${params.get('room').toUpperCase()} eingeladen – Namen eingeben und los!`;
+  $('invite').classList.remove('hidden');
+}
+$('newroom').onclick = () => { $('room').value = randomCode(); $('invite').classList.add('hidden'); };
+$('join').onclick = () => start(false);
+$('solo').onclick = () => start(true);
+for (const id of ['name', 'room']) $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') start(false); });
 
 let game = null;
 
-function start() {
+const menu = new Menu({
+  resume: () => game?.resume(),
+  copylink: () => game?.copyLink(),
+  respawn: () => { game?.respawn(false); game?.resume(); },
+  quit: () => {
+    const url = new URL(location.href);
+    url.searchParams.delete('autostart');
+    location.href = url.toString();
+  },
+});
+window.__menu = menu;
+if (params.get('autostart')) setTimeout(() => start(false), 0);
+
+function start(solo) {
   if (game) return;
   audio.unlock(); // Start ist eine Nutzergeste: jetzt darf Ton laufen
   const name = $('name').value.trim() || 'Lagerist';
@@ -39,15 +59,20 @@ function start() {
   url.searchParams.delete('autostart');
   url.searchParams.delete('name');
   history.replaceState(null, '', url);
-  $('lobby').classList.add('hidden');
+  menu.close();
   $('hud').classList.remove('hidden');
-  game = new Game(name, room);
+  if (settings.touchEnabled()) {
+    // Auf Handys: Vollbild + Querformat, soweit der Browser es erlaubt
+    document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
+  }
+  game = new Game(name, room, solo);
   window.__game = game;
+  game.lock();
 }
 
 // ───────── Spiel ─────────
 class Game {
-  constructor(name, room) {
+  constructor(name, room, solo = false) {
     this.name = name;
     this.room = room;
     this.level = buildLevel();
@@ -59,9 +84,7 @@ class Game {
     this.camYaw = 0;
     this.camPitch = 0.35;
     this.camDist = 7.5;
-    this.keys = new Set();
-    this.jumpPressed = false;
-    this.mouseBrace = false;
+    this.paused = false;
     this.best = 0;
     this.startedAt = Date.now();
     this.finished = false;
@@ -74,12 +97,12 @@ class Game {
     this.view.createAvatar('local', name, this.me.color);
     $('hud-room').textContent = `RAUM ${room}`;
 
-    this.net = new Net(room, name, {
+    this.net = new Net(solo ? null : room, name, {
       message: (m) => this.onMessage(m),
       offline: (wasOnline) => {
-        this.toast(wasOnline ? 'Verbindung verloren – Solo-Modus' : 'Kein Server erreichbar – Solo-Modus');
+        this.toast(solo ? 'Solo-Training – viel Erfolg!' : wasOnline ? 'Verbindung verloren – Solo-Modus' : 'Kein Server erreichbar – Solo-Modus');
         for (const id of [...this.remotes.keys()]) this.removeRemote(id);
-        $('hud-room').textContent = 'SOLO (offline)';
+        $('hud-room').textContent = solo ? 'SOLO' : 'SOLO (offline)';
       },
     });
 
@@ -143,6 +166,7 @@ class Game {
         this.respawn(true);
         $('finish').classList.add('hidden');
         this.finished = false;
+        this.input.setEnabled(!this.paused);
         this.toast(`${m.by} startet eine neue Schicht`);
         audio.play('respawn');
         break;
@@ -179,44 +203,30 @@ class Game {
   // ───── Eingabe ─────
   bindInput() {
     const canvas = this.view.renderer.domElement;
+    this.input = new Input(canvas, {
+      pause: () => (this.paused ? this.resume() : this.pause()),
+      emote: (i) => this.emote(i),
+      toast: (t) => this.toast(t),
+      device: () => this.updateClickHint(),
+    });
+    canvas.addEventListener('click', () => { if (!this.paused) this.lock(); });
+    $('click-hint').addEventListener('click', () => this.lock());
     addEventListener('keydown', (e) => {
-      if (e.target.tagName === 'INPUT') return;
-      if (e.code === 'Space') { if (!this.keys.has('Space')) this.jumpPressed = true; e.preventDefault(); }
-      this.keys.add(e.code);
-      const emotes = { Digit1: EMOTES[0], Digit2: EMOTES[1], Digit3: EMOTES[2] };
-      if (emotes[e.code]) {
-        this.net.send({ t: 'emote', e: emotes[e.code] });
-        this.toast(`Du: ${emotes[e.code]}`);
-        audio.play('emote', { index: EMOTES.indexOf(emotes[e.code]) });
-      }
-      if (e.code === 'KeyM' && !e.repeat) {
+      // Ohne Pointer-Lock (z. B. Tastatur am Tablet) öffnet Esc die Pause
+      if (e.key === 'Escape' && !document.pointerLockElement && !menu.isOpen()) this.pause();
+      if (e.code === 'KeyM' && !e.repeat && e.target.tagName !== 'INPUT') {
         const muted = audio.toggleMute();
         if (!muted) audio.play('mute');
         this.toast(muted ? 'Ton aus (M)' : 'Ton an (M)');
       }
     });
-    addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); this.mouseBrace = false; });
-    canvas.addEventListener('click', () => this.lock());
-    $('paused').addEventListener('click', (e) => { if (e.target.id !== 'copylink') this.lock(); });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    addEventListener('mousedown', (e) => { if (e.button === 2) this.mouseBrace = true; });
-    addEventListener('mouseup', (e) => { if (e.button === 2) this.mouseBrace = false; });
-    addEventListener('mousemove', (e) => {
-      if (document.pointerLockElement !== canvas) return;
-      this.camYaw -= e.movementX * 0.0025;
-      this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + e.movementY * 0.0025));
-    });
-    addEventListener('wheel', (e) => { this.camDist = Math.min(16, Math.max(3, this.camDist + Math.sign(e.deltaY) * 0.8)); });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === canvas;
-      $('paused').classList.toggle('hidden', locked || this.finished || !this.wasLocked);
+      if (!locked && this.wasLocked && !this.paused) this.pause();
       if (locked) this.wasLocked = true;
+      this.updateClickHint();
     });
-    $('copylink').onclick = async (e) => {
-      e.stopPropagation();
-      try { await navigator.clipboard.writeText(location.href); this.toast('Link kopiert'); } catch { this.toast(location.href); }
-    };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.pause(); });
     $('again').onclick = () => {
       audio.play('ui');
       this.net.send({ t: 'restart' });
@@ -224,32 +234,79 @@ class Game {
       this.respawn(true);
       this.finished = false;
       $('finish').classList.add('hidden');
+      this.input.setEnabled(true);
       this.lock();
     };
-    $('stay').onclick = () => { audio.play('uiBack'); $('finish').classList.add('hidden'); this.lock(); };
+    $('stay').onclick = () => { audio.play('uiBack'); $('finish').classList.add('hidden'); this.input.setEnabled(true); this.lock(); };
+    settings.onChange((s, patch) => { if ('hints' in patch) this.updateClickHint(); });
+    this.updateClickHint();
   }
+
+  emote(i) {
+    const e = EMOTES[i];
+    if (!e || this.paused) return;
+    this.net.send({ t: 'emote', e });
+    this.toast(`Du: ${e}`);
+    audio.play('emote', { index: i });
+  }
+
+  pause() {
+    if (this.paused || this.finishOpen()) return;
+    this.paused = true;
+    this.input.setEnabled(false);
+    if (document.pointerLockElement) document.exitPointerLock?.();
+    $('pause-room').textContent = this.net.online ? `Raum ${this.room} · ${this.remotes.size + 1} am Seil` : 'Solo';
+    menu.open('pause');
+    this.updateClickHint();
+  }
+
+  resume() {
+    if (!this.paused) return;
+    this.paused = false;
+    menu.close();
+    this.input.setEnabled(true);
+    this.lock();
+    this.updateClickHint();
+  }
+
+  async copyLink() {
+    const url = new URL(location.href);
+    url.searchParams.set('room', this.room);
+    try {
+      if (navigator.share && settings.touchEnabled()) await navigator.share({ title: 'Hochstapler', text: `Kletter mit mir in Raum ${this.room}!`, url: url.toString() });
+      else { await navigator.clipboard.writeText(url.toString()); this.toast('Einladungslink kopiert'); }
+    } catch { this.toast(url.toString()); }
+  }
+
+  finishOpen() { return !$('finish').classList.contains('hidden'); }
 
   lock() {
+    if (settings.touchEnabled() || this.input?.device === 'pad') return;
     const c = this.view.renderer.domElement;
-    if (c.requestPointerLock) c.requestPointerLock();
+    try { c.requestPointerLock?.()?.catch?.(() => {}); } catch { /* egal */ }
   }
 
-  readInput() {
-    const k = this.keys;
-    let fx = 0, rx = 0;
-    if (k.has('KeyW') || k.has('ArrowUp')) fx += 1;
-    if (k.has('KeyS') || k.has('ArrowDown')) fx -= 1;
-    if (k.has('KeyD') || k.has('ArrowRight')) rx += 1;
-    if (k.has('KeyA') || k.has('ArrowLeft')) rx -= 1;
+  updateClickHint() {
+    const kbm = this.input?.device === 'kbm' && !settings.touchEnabled();
+    const need = kbm && !document.pointerLockElement && !this.paused && !this.finishOpen();
+    $('click-hint').classList.toggle('hidden', !need);
+    $('hints').classList.toggle('hidden', !settings.get().hints || settings.touchEnabled());
+    $('crosshair').classList.toggle('hidden', settings.touchEnabled());
+  }
+
+  readInput(dt) {
+    const i = this.input.poll(dt);
+    this.camYaw += i.lookX;
+    this.camPitch = Math.min(1.35, Math.max(-0.5, this.camPitch + i.lookY));
+    if (i.zoom) this.camDist = Math.min(16, Math.max(3, this.camDist + i.zoom));
+    const fx = i.forward, rx = i.right;
     // Kamera schaut entlang (-sin yaw, -cos yaw)
     const sy = Math.sin(this.camYaw), cy = Math.cos(this.camYaw);
     let x = -sy * fx + cy * rx;
     let z = -cy * fx - sy * rx;
     const l = Math.hypot(x, z);
     if (l > 1) { x /= l; z /= l; }
-    const input = { x, z, jump: this.jumpPressed, brace: k.has('ShiftLeft') || k.has('ShiftRight') || this.mouseBrace };
-    this.jumpPressed = false;
-    return input;
+    return { x, z, jump: i.jump, brace: i.brace };
   }
 
   // ───── Spielschleife ─────
@@ -259,7 +316,9 @@ class Game {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
 
-    const input = this.readInput();
+    const input = this.readInput(dt);
+    const wasGrounded = this.body.grounded;
+    const fallSpeed = -this.body.vel[1];
     const step = 1 / 120;
     this.acc += dt;
     let first = true;
@@ -277,6 +336,14 @@ class Game {
     }
     this.acc -= steps * step;
     if (this.acc > step) this.acc = 0;
+
+    // Landung: Geräusch + leichtes Kamerawackeln bei harten Aufprallen
+    if (!wasGrounded && this.body.grounded && fallSpeed > 6) {
+      const k = Math.min(1, (fallSpeed - 6) / 18);
+      this.view.shake = Math.max(this.view.shake, k);
+    }
+    if (this.tension > 1.02 && !(this.lastTension > 1.02)) { this.view.shake = Math.max(this.view.shake, 0.25); }
+    this.lastTension = this.tension;
 
     // Herunterfallen ins Leere / Rand
     const p = this.body.pos;
@@ -421,16 +488,15 @@ class Game {
   showFinish(name, time) {
     this.finished = true;
     audio.play('finish');
+    this.input.setEnabled(false);
+    if (this.paused) { this.paused = false; menu.close(); }
     document.exitPointerLock?.();
-    $('paused').classList.add('hidden');
     $('finish-text').textContent = `${name} hat das Versanddach erreicht! Schichtzeit: ${fmt(time)}`;
     const board = this.board || [];
     $('board').innerHTML = board.length ? board.map((b) => `<li><b>${fmt(b.time)}</b> – ${esc(b.team)}</li>`).join('') : '';
     $('finish').classList.remove('hidden');
   }
 }
-
-const EMOTES = ['Warte!', 'Los, springen!', 'Festhalten!'];
 
 function fmt(ms) {
   const s = Math.floor(ms / 1000);
