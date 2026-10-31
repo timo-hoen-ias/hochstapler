@@ -304,6 +304,66 @@ export class Sfx {
     this._finish(nodes, 0.9);
   }
 
+  // ───── Feuer und Wasser ─────
+  // Platschen beim Eintauchen: dumpfer Schlag, Rauschen, Nachgluckern (v = Fallgeschwindigkeit)
+  splash(o = {}) {
+    const t = this.c.currentTime;
+    const v = Math.min(1, (o.v || 4) / 16);
+    const nodes = this._out(o, 0.5 + 0.5 * v);
+    const out = nodes[0];
+    this._tone(t, out, { f: 140, f2: 60, peak: 0.35 * v + 0.1, d: 0.18 });
+    this._burst(t, out, { kind: 'pink', type: 'lowpass', f: 2400, f2: 500, peak: 0.6, a: 0.005, d: 0.35 + 0.3 * v });
+    for (let i = 0; i < 6; i++) this._tone(t + 0.12 + i * rand(0.05, 0.12), out, { type: 'sine', f: rand(500, 1100), f2: rand(900, 1600), peak: 0.05, a: 0.003, d: 0.05 });
+    this._finish(nodes, 1.2);
+  }
+
+  // Löschschaum: kurzer, scharfer Sprühstoß
+  spray(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = this._out(o, 0.35);
+    this._burst(t, nodes[0], { kind: 'white', type: 'bandpass', f: 5200, q: 0.7, peak: 0.35, a: 0.01, d: 0.16 });
+    this._burst(t, nodes[0], { kind: 'pink', type: 'lowpass', f: 700, peak: 0.12, a: 0.01, d: 0.15 });
+    this._finish(nodes, 0.4);
+  }
+
+  // Feuer gelöscht: Zischen und Dampf
+  douse(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = this._out(o, 0.6);
+    this._burst(t, nodes[0], { kind: 'white', type: 'highpass', f: 2500, peak: 0.4, a: 0.02, d: 0.9 });
+    this._burst(t + 0.05, nodes[0], { kind: 'pink', type: 'bandpass', f: 900, f2: 300, q: 1, peak: 0.2, a: 0.05, d: 0.7 });
+    this._finish(nodes, 1.4);
+  }
+
+  // Knistern eines Feuers (wird in kurzen Abständen für das nächste Feuer gespielt)
+  crackle(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = [this.e.out('ambience', o.pos, 0.5 * (o.vol ?? 1))];
+    if (nodes[0]._extra) nodes.push(nodes[0]._extra);
+    const n = 1 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) this._burst(t + i * rand(0.01, 0.05), nodes[0], { kind: 'white', type: 'bandpass', f: rand(1500, 5000), q: 2, peak: rand(0.08, 0.25), a: 0.001, d: rand(0.01, 0.03) });
+    this._burst(t, nodes[0], { kind: 'brown', type: 'lowpass', f: 260, peak: 0.12, a: 0.03, d: 0.2 });
+    this._finish(nodes, 0.4);
+  }
+
+  // Stichflamme erwischt einen: Fauchen
+  ignite(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = this._out(o, 0.7);
+    this._burst(t, nodes[0], { kind: 'pink', type: 'lowpass', f: 300, f2: 2400, peak: 0.6, a: 0.04, d: 0.4 });
+    this._tone(t, nodes[0], { f: 80, f2: 45, peak: 0.3, d: 0.3 });
+    this._finish(nodes, 0.8);
+  }
+
+  // Feuerlöscher aus dem Schrank: Klappern und Metall
+  extGrab(o = {}) {
+    const t = this.c.currentTime;
+    const nodes = this._out(o, 0.5);
+    this._ring(t, nodes[0], 620, 0.12, 0.35, [1, 2.4, 4.1]);
+    this._burst(t, nodes[0], { kind: 'pink', type: 'bandpass', f: 1800, q: 3, peak: 0.2, d: 0.06 });
+    this._finish(nodes, 0.7);
+  }
+
   hiss(o = {}) {
     const t = this.c.currentTime;
     const nodes = [this.e.out('ambience', o.pos, 0.4)];

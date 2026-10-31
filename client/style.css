@@ -294,3 +294,11 @@ body[data-device=pad] .pad-tip { display: inline; }
 body.touch-ui .use-hint { bottom: auto; top: calc(30% + 76px); }
 .tbtn.use { width: 60px; height: 60px; font-size: 26px; right: calc(max(28px, env(safe-area-inset-right)) + 12px); bottom: calc(max(28px, env(safe-area-inset-bottom)) + 100px); display: none; }
 body.can-use .tbtn.use { display: block; }
+/* Feuer und Wasser */
+#underwater { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.25s; z-index: 4;
+  background: radial-gradient(ellipse at center, rgba(40, 150, 170, 0.28) 0%, rgba(10, 60, 80, 0.62) 100%); }
+#underwater.on { opacity: 1; }
+#hud-elements { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+#hud-elements span { font-size: 13px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+#hud-elements .el-ext { background: rgba(200, 30, 30, 0.85); color: #fff; }
+#hud-elements .el-wet { background: rgba(40, 140, 200, 0.85); color: #fff; }

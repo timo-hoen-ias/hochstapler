@@ -144,7 +144,7 @@ export class Room extends DurableObject {
       }
       case 's': {
         if (!me.id) return;
-        const s = { p: m.p, v: m.v, y: m.y, g: m.g, b: m.b, a: typeof m.a === 'number' ? m.a & 15 : undefined };
+        const s = { p: m.p, v: m.v, y: m.y, g: m.g, b: m.b, a: typeof m.a === 'number' ? m.a & 127 : undefined };
         this.lastState.set(me.id, s);
         this.broadcast({ t: 's', id: me.id, ...s }, ws);
         return;
@@ -209,7 +209,8 @@ export class Room extends DurableObject {
       case 'splat': {
         // Aufklatschen beim Absturz: nur weiterreichen
         if (!me.id || !Array.isArray(m.p) || m.p.length !== 3 || !m.p.every(Number.isFinite)) return;
-        this.broadcast({ t: 'splat', id: me.id, p: m.p }, ws);
+        const g = Array.isArray(m.g) && m.g.length === 4 && m.g.every(Number.isFinite) ? m.g : null;
+        this.broadcast({ t: 'splat', id: me.id, p: m.p, g }, ws);
         return;
       }
       case 'emote':

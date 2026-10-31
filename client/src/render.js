@@ -12,6 +12,7 @@ import { MachineView } from './machines3d.js';
 import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 import { Rig } from './anim.js';
 import { Splats } from './splat.js';
+import { elementMaterials, buildElements, updateElements } from './elements3d.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -44,6 +45,7 @@ export class Renderer {
     this.level = level;
     const s = settings.get();
     this.renderer = new THREE.WebGLRenderer({ antialias: s.quality !== 'low', powerPreference: 'high-performance' });
+    this.renderer.localClippingEnabled = true; // Blutlachen an Plattformkanten abschneiden
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -57,6 +59,7 @@ export class Renderer {
     this.mats = this.makeMaterials();
     this.mm = modelMaterials(this.tex, this.mats);
     for (const k of ['machine', 'pipe', 'duct']) this.mats[k] = this.mm[k];
+    Object.assign(this.mats, elementMaterials()); // Becken, Schleusen, Flutkammern
 
     this.setupSky();
     this.setupLights();
@@ -68,6 +71,7 @@ export class Renderer {
     buildYard(this.scene, level, this.mm);
     this.windFx = buildWind(this.scene, level);
     this.puzzles = buildPuzzles(this.scene, level, { ...this.mm, hazard: this.mats.hazard }, this.tex);
+    this.elements = buildElements(this.scene, level, this.mm); // Feuer und Wasser
     this.buildMovers();
     this.buildDecor();
     this.buildSigns();
@@ -715,7 +719,7 @@ export class Renderer {
       av.g.scale.set(1 + 0.7 * u, 1 - 0.85 * u, 1 + 0.7 * u);
       if (sp.t >= 0.09 && !sp.done) {
         sp.done = true;
-        this.splats.spawn(sp.pos, av.color, sp.style, QUALITY[settings.get().quality] === QUALITY.low);
+        this.splats.spawn(sp.pos, av.color, sp.style, sp.area, QUALITY[settings.get().quality] === QUALITY.low);
       }
       if (!st.hidden && sp.t > 0.3) { av.splat = null; av.g.scale.set(1, 1, 1); }
     }
@@ -723,11 +727,12 @@ export class Renderer {
     return ev;
   }
 
-  // Figur klatscht am Fußpunkt pos auf (style: 'blut' | 'farbe')
-  splat(id, pos, style) {
+  // Figur klatscht am Fußpunkt pos auf (style: 'blut' | 'farbe'),
+  // area = Plattform [minX, maxX, minZ, maxZ] oder null (großer Boden)
+  splat(id, pos, style, area = null) {
     const av = this.avatars.get(id);
-    if (av) av.splat = { t: 0, pos: [...pos], style, done: false };
-    else this.splats.spawn(pos, '#ff7a1a', style);
+    if (av) av.splat = { t: 0, pos: [...pos], style, area, done: false };
+    else this.splats.spawn(pos, '#ff7a1a', style, area);
   }
 
   // ───────── Seile ─────────
@@ -757,6 +762,11 @@ export class Renderer {
       const tension = Math.min(1, Math.max(0, (d / L - 0.9) * 8));
       mesh.material.color.setRGB(0.85 + 0.1 * tension, 0.7 - 0.45 * tension, 0.42 - 0.25 * tension);
     }
+  }
+
+  // Feuer, Wasser, Löscher und Schwimmlage (nach den Figuren, vor dem Zeichnen)
+  updateElements(dt, people, focus) {
+    updateElements(this.elements, dt, people, this, focus, settings.get().quality);
   }
 
   // views (Splitscreen, optional): [{ pos, look, focus }] je Ansicht – Kamera-Position,

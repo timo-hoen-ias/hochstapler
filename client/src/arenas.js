@@ -16,6 +16,7 @@ export const ARENA_OF = {
   chemie: 'acidForklift', // Akt 5: Stapler durch das Säurebecken
   gleis: 'trolley', // Akt 6: Draisine über die Gleisbrücke
   kran: 'towerCrane', // Akt 7: Turmkran um den Betonkern
+  feuer: 'crane', // Akt 8: Löschkran über dem Brandschacht
 };
 
 export const COOP_WALL = 4.3; // Räuberleiter-/Hochzieh-Wand: allein zu hoch (3,7 m), zu zweit machbar

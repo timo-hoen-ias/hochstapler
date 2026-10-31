@@ -120,7 +120,7 @@ function crane(m0) {
   const m = ms[m0.def.id];
   const D = m.def, exit = exitOf(m);
   const tower = D.kind === 'tower';
-  const name = tower ? 'Turmkran' : 'Eiskran';
+  const name = tower ? 'Turmkran' : `Laufkran (${level.sections[D.sec].theme || ''})`;
   // Direkter Weg zum Ziel versperrt? (nur Fahren/Drehen)
   {
     const u0 = m.s.u;
@@ -309,6 +309,7 @@ for (const m of all) {
   else if (m.type === 'trolley') trolley(m);
 }
 coopWalls();
-if (all.length !== 7) fail(`Erwartet 7 Rätsel-Arenen (eine je Akt), gefunden ${all.length}`);
+const acts = new Set(level.sections.map((x) => x.act || 1)).size;
+if (all.length !== acts) fail(`Erwartet ${acts} Rätsel-Arenen (eine je Akt), gefunden ${all.length}`);
 if (fails) { console.log(`${fails} Problem(e) in den Rätsel-Arenen`); process.exit(1); }
 console.log(`✓ Rätsel-Arenen ok (${all.length} Maschinen: ${[...seen].join(', ')})`);

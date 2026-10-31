@@ -4,6 +4,7 @@
 import { buildLevel, phaseOf, BLINK_WARN } from '../client/src/level.js';
 import { Colliders, createBody, stepBody, PHYS } from '../client/src/physics.js';
 import { simHookFrom, simToHook, simLadder } from './sim-grips.mjs';
+import { simIntoWater, simSwimOut } from './sim-water.mjs';
 
 const level = buildLevel(process.env.SEED ? { seed: Number(process.env.SEED) } : {});
 const world = new Colliders(level);
@@ -33,6 +34,15 @@ for (let i = 1; i < level.path.length; i++) {
   const A = level.path[i - 1], B = level.path[i];
   if (B.how === 'coop' || B.how === 'machine') continue; // eigene Prüfung in test-arenas.mjs
   tested++;
+  // Schwimmstrecken: hinein ins Wasser, hindurch, am Ausstieg hoch
+  if (A.kind === 'swim' || B.kind === 'swim') {
+    const r = B.kind === 'swim' ? simIntoWater(level, world, A, B) : simSwimOut(level, world, A, B, level.path[i - 2].box);
+    if (!r.ok) {
+      fails++;
+      console.log(`✗ ${i - 1}→${i} (${A.kind} → ${B.kind}) Abschnitt ${B.box.sec ?? A.water?.sec}: ${r.why}`);
+    }
+    continue;
+  }
   // Haken und Leitern haben eigene Abläufe
   if (A.kind === 'hook' || B.kind === 'hook' || B.how === 'ladder') {
     const r = A.kind === 'hook' ? simHookFrom(level, world, A, B) : B.kind === 'hook' ? simToHook(level, world, A, B) : simLadder(level, world, A, B);

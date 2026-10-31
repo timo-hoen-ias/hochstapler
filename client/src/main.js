@@ -9,8 +9,13 @@ import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
 import { animCode, decodeAnim } from './anim.js';
+import { updateFires, waterAt } from './elements.js';
+import { nearestFire } from './elements3d.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 import { MachineControl } from './machinectl.js';
+
+// Wer tiefer als das auf eine Plattform fällt, zerplatzt (m)
+const SPLAT_DROP = 10;
 
 // Blickrichtung für die Figur: an einer Kante zur Wand gedreht
 function visYaw(b) {
@@ -107,8 +112,10 @@ function start(solo, local = null) {
     // Auf Handys: Vollbild + Querformat, soweit der Browser es erlaubt
     document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
   }
+  const track = audio.newRun(); // jede Schicht ihr eigener Soundtrack (bei „Zufällig“)
   game = new Game(name, room, solo, local);
   window.__game = game;
+  game.toast(`♪ ${track.name}`);
   game.lock();
 }
 
@@ -117,6 +124,11 @@ function start(solo, local = null) {
 // Jeder lokale Spieler hat seinen eigenen Körper und – online – seine eigene
 // Verbindung zum Raum. Für den Server und die Mitspieler sind lokale Spieler ganz
 // normale Teilnehmer; der erste lokale Spieler (primary) verarbeitet die Raum-Nachrichten.
+// Zusatzbits im Netz-Zustand: 16 = trägt Feuerlöscher, 32 = schwimmt, 64 = taucht
+function elementBits(b) {
+  return (b.ext > 0 ? 16 : 0) | (b.swim ? 32 : 0) | (b.swim && b.diving ? 64 : 0);
+}
+
 class Game {
   constructor(name, room, solo = false, local = null) {
     this.name = name;
@@ -353,7 +365,7 @@ class Game {
         const r = this.remotes.get(m.id);
         if (!r || !Array.isArray(m.p) || this.splatStyle() === 'aus') break;
         r.hidden = 1.4;
-        this.view.splat(r.id, m.p, this.splatStyle());
+        this.view.splat(r.id, m.p, this.splatStyle(), Array.isArray(m.g) && m.g.length === 4 ? m.g : null);
         audio.play('splat', { pos: m.p, remote: true });
         break;
       }
@@ -398,6 +410,7 @@ class Game {
         this.setInputEnabled(!this.paused);
         this.toast(m.race ? `${m.by} startet die Revanche – auf die Plätze!` : `${m.by} startet eine neue Schicht`);
         audio.play('respawn');
+        this.toast(`♪ ${audio.newRun().name}`);
         break;
       case 'mode':
         this.applyMode(m);
@@ -571,6 +584,7 @@ class Game {
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.pause(); });
     $('again').onclick = () => {
       audio.play('ui');
+      if (!this.net.online) this.toast(`♪ ${audio.newRun().name}`); // online kommt das „restart“ vom Raum zurück
       this.net.send({ t: 'restart' });
       this.startedAt = Date.now() + (this.net.online ? this.net.offset : 0);
       this.played = 0;
@@ -711,6 +725,15 @@ class Game {
     // Druckplatten: Fußpunkte aller Spieler (lokal und online)
     const feet = [...locals.map((lp) => lp.body.pos), ...[...this.remotes.values()].map((r) => r.rpos)];
     this.world.updatePlates(feet, dt, feet.length > 1 ? 1.2 : 6);
+    // Feuerlöscher: lokale Körper direkt, Mitspieler über ihr Zustandsbit (elements.js)
+    const sprayers = locals.map((lp) => lp.body);
+    for (const r of this.remotes.values()) {
+      if (!r.rpos) continue;
+      r.sprayer ||= { pos: r.rpos, yaw: 0, ext: 0 };
+      Object.assign(r.sprayer, { pos: r.rpos, yaw: r.yaw || 0, ext: (r.a & 16) ? 1 : 0 });
+      sprayers.push(r.sprayer);
+    }
+    updateFires(this.world, sprayers, dt);
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
       this.mc.step(step, i === 0, feet);
@@ -725,7 +748,9 @@ class Game {
         lp.jump = false;
         if (b.boosted) { audio.play('jump', { pos: b.pos }); if (!this.boostTold) { this.boostTold = true; this.toast('Räuberleiter!'); } }
         if (b.jumped) evs[k].jumped = true;
-        if (b.zapped) { audio.play('respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
+        if (b.zapped) { audio.play(b.zapped === 'fire' ? 'ignite' : 'respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
+        if (b.splash) lp.splashEv = Math.max(lp.splashEv || 0, b.splash);
+        if (b.gotExt) lp.gotExt = true;
         if (b.justLanded) { evs[k].landed = true; evs[k].landSpeed = Math.max(evs[k].landSpeed, -vyBefore); }
       });
       this.ropeStep(step);
@@ -756,10 +781,18 @@ class Game {
       } else if (onYard && this.splatStyle() !== 'aus') {
         this.splat(lp);
         evs[k].landed = false;
+      } else if (b.grounded && b.ground && (lp.airTop ?? p[1]) - p[1] > SPLAT_DROP && this.splatStyle() !== 'aus') {
+        // Aus zu großer Höhe auf eine Plattform gefallen: auch dort zerplatzen
+        const g = b.ground;
+        this.splat(lp, g.big ? null : [g.min[0], g.max[0], g.min[2], g.max[2]]);
+        evs[k].landed = false;
       } else if (onYard || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
         this.crashRespawn(lp);
         evs[k].landed = false;
       }
+      // Höchster Punkt seit dem letzten Halt (Boden, Kante, Haken, Leiter) für die Fallhöhe
+      if (b.grounded || b.hang || b.hook || b.ladder || lp.dead > 0) lp.airTop = b.pos[1];
+      else lp.airTop = Math.max(lp.airTop ?? b.pos[1], b.pos[1]);
       // Weitere lokale Spieler: Sprünge/Landungen räumlich hörbar
       if (k > 0) {
         if (evs[k].jumped) audio.remoteJump(b.pos);
@@ -816,7 +849,7 @@ class Game {
       const r2 = (v) => Math.round(v * 100) / 100;
       for (const lp of locals) {
         const b = lp.body;
-        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(visYaw(b)), g: b.grounded, b: b.braced, a: animCode(b) });
+        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(visYaw(b)), g: b.grounded, b: b.braced, a: animCode(b) | elementBits(b) });
       }
     }
 
@@ -845,9 +878,70 @@ class Game {
     });
     this.hudAcc += dt;
     if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
+    this.elementsFrame(dt, views ? views[0].pos : this.view.camera.position.toArray(), views ? this.cameraFocus().target : p1.pos);
     this.view.update(dt, this.world, views ? this.cameraFocus().target : p1.pos, views);
     // Erst nach Spieler 1 (der sich in readInputs seinen Controller nimmt): freie Controller dürfen einsteigen
     if (!this.paused && !this.finished) this.pollNewPads();
+  }
+
+  // Feuer und Wasser: Figuren-Zustände an die Grafik, Geräusche, Hinweise, Unterwasser-Tönung
+  elementsFrame(dt, camPos, focus) {
+    const people = [];
+    const surfAt = (p) => waterAt(this.world, p)?.surf ?? p[1];
+    for (const lp of this.locals) {
+      const b = lp.body;
+      people.push({ id: lp.id, pos: b.pos, vel: b.vel, yaw: b.yaw, ext: b.ext > 0, spray: !!b.spray, swim: !!b.swim, dive: !!(b.swim && b.diving), wet: b.wet, steam: b.steam, splash: lp.splashEv || 0, surf: b.swim ? b.swim.surf : surfAt(b.pos) });
+      if (lp.splashEv) audio.play('splash', { v: lp.splashEv, pos: lp === this.p1 ? undefined : b.pos });
+      if (lp.gotExt) {
+        audio.play('extGrab');
+        if (!this.extHinted) { this.extHinted = true; this.toast('Feuerlöscher! Lauf auf die Flammen zu, dann sprüht er von selbst'); }
+      }
+      if (b.wet > 7.9 && !b.swim && !this.wetHinted && this.world.showers.some((w) => b.pos[0] > w.min[0] && b.pos[0] < w.max[0] && b.pos[2] > w.min[2] && b.pos[2] < w.max[2])) {
+        this.wetHinted = true; this.toast('Klatschnass – ein paar Sekunden feuerfest');
+      }
+      lp.splashEv = 0; lp.gotExt = false;
+      if (b.spray) {
+        lp.sprayT = (lp.sprayT || 0) - dt;
+        if (lp.sprayT <= 0) { lp.sprayT = 0.16; audio.play('spray', { pos: lp === this.p1 ? undefined : b.pos }); }
+      }
+      if (b.steam) { lp.steamT = (lp.steamT || 0) - dt; if (lp.steamT <= 0) { lp.steamT = 0.3; audio.play('hiss', { d: 0.3 }); } }
+      if (b.swim && !lp.wasSwim && !lp.swimHinted && this.locals.length === 1) { lp.swimHinted = true; this.toast('Schwimmen: Festhalten (Shift) taucht, Springen hechtet hinaus'); }
+      lp.wasSwim = !!b.swim;
+    }
+    for (const r of this.remotes.values()) {
+      if (!r.rpos) continue;
+      const a = r.a | 0, swim = !!(a & 32);
+      const splash = swim && !r.wasSwim ? 8 : 0;
+      r.wasSwim = swim;
+      people.push({ id: r.id, pos: r.rpos, vel: r.vel || [0, 0, 0], yaw: r.yaw || 0, ext: !!(a & 16), spray: !!r.sprayer?.spray, swim, dive: !!(a & 64), wet: 0, steam: false, splash, surf: surfAt(r.rpos) });
+      if (splash) audio.play('splash', { v: 8, pos: r.rpos });
+    }
+    for (const z of this.world.fires) if (z.justOut) audio.play('douse', { pos: [(z.min[0] + z.max[0]) / 2, z.min[1] + 1, (z.min[2] + z.max[2]) / 2] });
+    // Knistern des nächsten Feuers
+    this.crackleT = (this.crackleT || 0) - dt;
+    if (this.crackleT <= 0) {
+      this.crackleT = 0.08 + Math.random() * 0.2;
+      const nf = nearestFire(this.view.elements, this.p1.body.pos);
+      if (nf && nf[0] < 14) audio.play('crackle', { pos: nf[1].center, vol: Math.max(0.15, 1 - nf[0] / 14) });
+    }
+    this.view.updateElements(dt, people, focus);
+    // Kamera unter Wasser: blaugrüne Tönung
+    const under = !!waterAt(this.world, camPos);
+    if (!this.uw) {
+      this.uw = document.createElement('div');
+      this.uw.id = 'underwater';
+      document.body.appendChild(this.uw);
+      this.elHud = document.createElement('div');
+      this.elHud.id = 'hud-elements';
+      $('hud-left').appendChild(this.elHud);
+    }
+    this.uw.classList.toggle('on', under);
+    // Anzeige: Löschschaum und "nass = feuerfest" von Spieler 1
+    const b1 = this.p1.body, parts = [];
+    if (b1.ext > 0) parts.push(`<span class="el-ext">Feuerlöscher ${Math.ceil(b1.ext * 100)} %</span>`);
+    if (b1.wet > 0 && !b1.swim) parts.push(`<span class="el-wet">Nass · feuerfest ${Math.ceil(b1.wet)} s</span>`);
+    const html = parts.join('');
+    if (html !== this.elHudHtml) { this.elHudHtml = html; this.elHud.innerHTML = html; }
   }
 
   // Zug des Seils am Gurt (Welt-Vektor, Länge 0..1) für jeden Spieler
@@ -935,22 +1029,24 @@ class Game {
   }
 
   // Aufklatschen: Figur platzt, Pfütze bleibt; Mitspieler sehen es auch
-  splat(lp) {
+  // area: Plattform [minX, maxX, minZ, maxZ] (null = Hof)
+  splat(lp, area = null) {
     const b = lp.body;
     const p = [...b.pos];
     lp.dead = 1.4;
     b.vel = [0, 0, 0];
     releaseGrips(b);
-    this.view.splat(lp.id, p, this.splatStyle());
+    this.view.splat(lp.id, p, this.splatStyle(), area);
     audio.play('splat', { pos: lp === this.p1 ? null : p });
     this.view.shake = Math.max(this.view.shake, lp === this.p1 ? 1 : 0.5);
     const r2 = (v) => Math.round(v * 100) / 100;
-    (lp.net || this.net).send({ t: 'splat', p: p.map(r2) });
+    (lp.net || this.net).send({ t: 'splat', p: p.map(r2), g: area ? area.map(r2) : null });
   }
 
   respawn(lp, toStart) {
     lp.dead = 0;
     this.mc?.leave(lp, true);
+    lp.airTop = undefined;
     const cp = this.level.checkpoints[toStart ? 0 : this.cpOf(lp)];
     const pos = [...cp.pos];
     const slot = lp.slot || 0;

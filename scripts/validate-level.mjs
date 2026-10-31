@@ -46,6 +46,8 @@ for (let i = 1; i < level.path.length; i++) {
   const A = level.path[i - 1], B = level.path[i];
   if (A.kind === 'hook' || B.kind === 'hook') continue;
   if (B.how === 'coop' || B.how === 'machine') continue; // Koop-Wand und Maschinen: test-arenas.mjs
+  // Schwimmstrecken und Ausstiege aus dem Wasser prüft die Simulation
+  if (A.kind === 'swim' || B.kind === 'swim') continue;
   const from = endBox(A);
   const to = B.box;
   const rise = (to.ramp ? to.ramp.near : to.max[1]) - from.max[1];
@@ -82,7 +84,8 @@ for (let i = 0; i < solids.length; i++) {
   const head = { min: [s.min[0] - 0.3, s.max[1] + 0.01, s.min[2] - 0.3], max: [s.max[0] + 0.3, s.max[1] + 2.0, s.max[2] + 0.3] };
   const bare = { min: [s.min[0], s.max[1] + 0.01, s.min[2]], max: [s.max[0], s.max[1] + 2.0, s.max[2]] };
   // Leitertürme stehen direkt an der Plattform davor: nur echte Überdeckung zählt
-  if (!s.basin) for (const j of near(head)) if (j !== i && !same(j) && inter(head, solids[j]) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
+  // Becken und Flutkammern: Wände und Ränder derselben Gruppe gehören dazu
+  if (!s.basin) for (const j of near(head)) if (j !== i && !same(j) && inter(head, solids[j]) && !(s.grp && s.grp === solids[j].grp) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
 }
 
 for (const [k, m] of level.movers.entries()) {
@@ -95,9 +98,16 @@ for (const [k, z] of level.zones.entries()) {
   for (const j of near(z)) if (inter(z, solids[j], 0.02)) report(`Lüfter ${k} ist verbaut von #${j} (${solids[j].mat})`);
 }
 
+// Wasser: nichts Fremdes darin, Notduschen ausgenommen
+for (const [k, w] of (level.waters || []).entries()) {
+  if (w.shower) continue;
+  for (const j of near(w)) if (inter(w, solids[j], 0.02) && !solids[j].grp) report(`Wasser ${k} ist verbaut von #${j} (${solids[j].mat})`);
+}
+
 const top = level.goal.min[1];
 const count = (k) => level.path.filter((p) => p.special === k || p.kind === k).length;
 console.log(`${level.path.length} Kletterpunkte, ${level.movers.length} bewegliche Elemente, ${level.checkpoints.length} Zwischenstopps, ${level.sections.length} Abschnitte, Ziel bei ${top.toFixed(0)} m (gebaut in ${buildMs} ms)`);
+console.log(`  Wasser ${(level.waters || []).filter((w) => !w.shower).length}, Notduschen ${(level.waters || []).filter((w) => w.shower).length}, Feuer ${level.hazards.filter((z) => z.kind === 'fire').length}, Feuerlöscher ${(level.extinguishers || []).length}`);
 console.log(`  Eis ${count('ice')}, Luftpolster ${count('bounce')}, Lüfter ${count('fan')}, Kippschalen ${count('blink')}, Bänder ${level.statics.filter((s) => s.belt).length}`);
 const xs = solids.flatMap((s) => [s.min[0], s.max[0]]);
 const zs = solids.flatMap((s) => [s.min[2], s.max[2]]);

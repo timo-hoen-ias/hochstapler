@@ -1,3 +1,5 @@
+import { FIRE_ACT, firePieces, waterworksScenery } from './wasserwerk.js';
+
 // Akte 2–7 von "Hochstapler". Jeder Akt hat ein eigenes Thema: eigene Materialien,
 // Nebelfarbe, Kulisse, Gefahren-Optik und eine eigene Auswahl an Set-Pieces.
 // Abschnitte werden aus Set-Pieces zusammengesetzt; jedes Stück wird probehalber
@@ -46,6 +48,7 @@ export const ACTS = [
     pool: { hooks: 4, trolley: 3, wind: 3, beams: 3, poles: 3, swing: 2, crumble: 2, zigzag: 2, lasers: 1, spikes: 1 },
     puzzles: ['fence', 'gate'], scenery: 'mast',
   },
+  FIRE_ACT, // Akt 8: Feuer und Wasser (wasserwerk.js)
 ];
 
 // Richtung → Abmessungen (along = entlang der Laufrichtung, across = quer)
@@ -357,6 +360,8 @@ export function buildActs(k) {
     },
   };
 
+  Object.assign(P, firePieces(k, S, rnd));
+
   // Freier Platz vom Punkt aus in Richtung d bis zur Hallengrenze
   const room = (d) => {
     const [cx, cz] = mid(k.prev);
@@ -431,6 +436,7 @@ export function buildActs(k) {
       plan[3 + (si % 3)] = T.puzzles[si % 2];
       // Große Rätsel-Plattform mit Maschine (arenas.js), einmal je Akt – sobald Platz ist
       if (si === 3) k.queueArena(T);
+      if (T.fixed?.[si]) plan[1] = T.fixed[si];
       plan.forEach((name, i) => {
         k.tryArenas();
         place(name, T, g);
@@ -445,6 +451,7 @@ export function buildActs(k) {
     const h = y1 - y0;
     const prop = (type, o) => k.prop(type, null, { y0, y1, ...o });
     switch (T.scenery) {
+      case 'waterworks': waterworksScenery((type, o) => k.prop(type, null, { y0, y1, ...o }), W, y0, y1); break;
       case 'frostracks': // Tiefkühlregale hinter Isolierpaneelen
         prop('rack', { from: [-W + 2, -W + 3], to: [W - 2, -W + 3], height: h, base: y0, frost: true });
         prop('rack', { from: [-W + 3, W - 2], to: [-W + 3, -W + 2], height: h, base: y0, frost: true });

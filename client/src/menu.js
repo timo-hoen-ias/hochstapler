@@ -28,6 +28,9 @@ const OPTIONS = [
   { key: 'splitscreen', label: 'Lokaler Koop: geteilter Bildschirm', type: 'toggle',
     hint: 'Aus: eine gemeinsame Kamera, die alle lokalen Spieler im Bild hält.' },
   { key: 'muted', label: 'Ton (Taste M)', type: 'audioMute' },
+  { key: 'track', label: 'Soundtrack', type: 'audioTrack',
+    choices: [['random', 'Zufällig (jede Schicht anders)'], ...audio.tracks.map((t) => [t.id, t.name])],
+    hint: 'Zufällig: jede neue Schicht startet mit einem anderen Soundtrack. Sonst läuft immer der gewählte.' },
   vol('master', 'Gesamtlautstärke'),
   vol('music', 'Musik'),
   vol('sfx', 'Effekte'),
@@ -170,6 +173,7 @@ export class Menu {
   value(o) {
     if (o.audio) return audio.getVolume(o.audio);
     if (o.type === 'audioMute') return !audio.muted;
+    if (o.type === 'audioTrack') return audio.getTrack();
     return settings.get()[o.key];
   }
 
@@ -180,6 +184,12 @@ export class Menu {
   cycle(o, dir) {
     const s = settings.get();
     if (o.type === 'audioMute') { audio.unlock(); audio.toggleMute(); return; }
+    if (o.type === 'audioTrack') {
+      const i = o.choices.findIndex(([v]) => v === audio.getTrack());
+      audio.unlock();
+      audio.setTrack(o.choices[(i + dir + o.choices.length) % o.choices.length][0]);
+      return;
+    }
     if (o.type === 'toggle') settings.set({ [o.key]: !s[o.key] });
     else if (o.type === 'choice') {
       const i = o.choices.findIndex(([v]) => v === s[o.key]);

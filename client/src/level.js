@@ -17,10 +17,10 @@ const HANDMADE = [
   { name: 'Versanddach', hall: 'Dach', fog: 0x7a7aa8 },
 ];
 
-export const GENERATED_SECTIONS = 36;
+export const GENERATED_SECTIONS = 42;
 // Akt 1 zieht weit nach links hinaus – der Start liegt deshalb rechts im Hof
 const START_X = 22;
-const SEED = 0x5eed1f; // Zufallsfolge der Akte 2–7 (nach Einbau der Rätsel-Arenen neu gewählt, damit alle Übergänge schaffbar sind)
+const SEED = 0x5eed24; // Zufallsfolge der Akte 2–7 (nach Einbau der Rätsel-Arenen neu gewählt, damit alle Übergänge schaffbar sind)
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.LVLDEBUG;
 
 // Bewegungsprofil: halten – fahren – halten – zurückfahren.
@@ -80,6 +80,8 @@ export function buildLevel(opts = {}) {
   const shortcuts = []; // Abkürzungen: [{ from, to, how }]
   const hazards = []; // Laser und Stacheln
   const plates = []; // Druckplatten
+  const waters = []; // Wasserbecken, Flutkammern, Notduschen (elements.js)
+  const extinguishers = []; // Feuerlöscher-Schränke
   const sections = [];
   const checkpoints = [];
   const machines = []; // Rätsel-Plattformen: Gabelstapler, Kräne, Aufzüge, Draisinen
@@ -412,6 +414,9 @@ export function buildLevel(opts = {}) {
     return b;
   }
   function prop(type, pos, o = {}) { props.push({ type, pos, ...o, sec }); }
+  // Wasser { min, max } (max[1] = Wasserspiegel). o: rise { range, period, phase }, current [x, 0, z], shower
+  function water(min, max, o = {}) { const w = { min, max, sec, index: waters.length, ...o }; waters.push(w); return w; }
+  function extinguisher(pos, face) { extinguishers.push({ pos, face, sec, index: extinguishers.length }); }
   function face(dir, world) { fwd = world ? [...world] : dirVec(dir); }
   function here() { return prev; }
   function setPrev(b) { prev = b; }
@@ -465,7 +470,7 @@ export function buildLevel(opts = {}) {
   const inBounds = (b) => b.min[0] > -BOUND && b.max[0] < BOUND && b.min[2] > -BOUND && b.max[2] < BOUND;
   // Zustand sichern / zurücksetzen, damit ein Set-Piece, das nicht passt, spurlos verschwindet
   const corridors = []; // Sprungräume zwischen Kletterpunkten, die frei bleiben müssen
-  const lists = { corridors, statics, movers, decor, signs, zones, path, hooks, ladders, props, hazards, plates, solids, clears, supported, checkpoints, machines, levers };
+  const lists = { corridors, statics, movers, decor, signs, zones, path, hooks, ladders, props, hazards, plates, solids, clears, supported, checkpoints, waters, extinguishers, machines, levers };
   function snapshot() {
     const s = { prev, fwd, containerColor };
     for (const [k, v] of Object.entries(lists)) s[k] = v.length;
@@ -485,6 +490,7 @@ export function buildLevel(opts = {}) {
     const bare = (b) => ({ min: [b.min[0], b.max[1] + 0.01, b.min[2]], max: [b.max[0], b.max[1] + 2.6, b.max[2]] });
     const blocks = (lo, hi) => {
       if (lo.basin) { pieceWhy = 'R1'; return false; } // Säurebecken: Fässer stehen darin
+      if (lo.grp && lo.grp === hi.grp) return false; // Becken/Kammer: Wände gehören dazu
       if (!inter(head(lo), hi)) { pieceWhy = 'R2'; return false; }
       return !hi.ladderBlock || inter(bare(lo), hi);
     };
@@ -509,6 +515,12 @@ export function buildLevel(opts = {}) {
       // Lüfter-Aufwind darf nicht verbaut werden, Wind anderer Stücke nicht hineinwehen
       for (const z of zones) if (z.lift && z.max[1] > n.min[1] && inter(z, n)) { pieceWhy = 'R6'; return false; }
       for (const z of zones.slice(0, s.zones)) if (z.push && n.mat && inter(z, n)) { pieceWhy = 'R7'; return false; }
+      // Wasser älterer Stücke bleibt frei
+      for (const w of waters.slice(0, s.waters)) if (n.mat && inter(w, n)) { pieceWhy = 'W1'; return false; }
+    }
+    for (const w of waters.slice(s.waters)) {
+      if (!inBounds(w)) { pieceWhy = 'W2'; return false; }
+      for (const o of solids.slice(0, firstNew)) if (o.mat && inter(w, o)) { pieceWhy = 'W3'; return false; }
     }
     // Fahrwege beweglicher Plattformen samt Platz für den Spieler darauf
     const room = (m) => {
@@ -538,6 +550,7 @@ export function buildLevel(opts = {}) {
       const A = path[i - 1], B = path[i];
       // Wege innerhalb einer Arena (Maschine, Räuberleiter) hält die Arena selbst frei
       if (B.arena && A.box.arena === B.arena) continue;
+      if (A.kind === 'swim' || B.kind === 'swim') continue; // Schwimmstrecken prüft die Simulation
       const ta = A.box.max[1], tb = B.box.ramp ? B.box.ramp.near : B.box.max[1];
       let hi = Math.max(ta, tb) + 3.3;
       if (A.special === 'fan' && A.zone) hi = Math.max(hi, A.zone.max[1] + 0.3);
@@ -625,6 +638,7 @@ export function buildLevel(opts = {}) {
       queueArena, tryArenas,
       section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint, hazard, plate, gate,
       face, dirVec, snapshot, rollback, pieceOk, solid, special, fanZone, supports, addPath, markBlink, setPrev, dropLastPath, tagPath,
+      water, extinguisher,
       ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),
       pathLength: () => path.length, pathBoxes: (from) => path.slice(from).map((p) => p.box),
       get prev() { return prev; }, get fwd() { return fwd; },
@@ -659,6 +673,7 @@ export function buildLevel(opts = {}) {
   return {
     statics, movers, decor, signs, zones, path, sections, checkpoints, goal, landmarks,
     hooks, ladders, props, shortcuts, hazards, plates, machines, levers,
+    hooks, ladders, props, shortcuts, hazards, plates, waters, extinguishers,
     spawn: [START_X, 0.05, 8],
     killY: -20,
   };
