@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hochstapler</title>
+  <meta name="description" content="Koop-Kletterspiel: angeseilt bis aufs Dach des Logistikzentrums." />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="lobby" class="overlay">
+    <div class="card">
+      <div class="logo">HOCH<span>STAPLER</span></div>
+      <p class="tag">Bis zu vier Lageristen, ein Seil, ein Ziel: das Versanddach.</p>
+      <label>Dein Name
+        <input id="name" maxlength="16" placeholder="z. B. Timo" autocomplete="off" />
+      </label>
+      <label>Raumcode
+        <div class="row">
+          <input id="room" maxlength="12" placeholder="ABCD" autocomplete="off" />
+          <button id="newroom" class="ghost" type="button">Neu</button>
+        </div>
+      </label>
+      <button id="join" class="primary" type="button">Schicht starten</button>
+      <div class="controls">
+        <div><kbd>W A S D</kbd> laufen</div>
+        <div><kbd>Leertaste</kbd> springen</div>
+        <div><kbd>Shift</kbd> / <kbd>Rechtsklick</kbd> festhalten</div>
+        <div><kbd>Maus</kbd> Kamera · <kbd>Rad</kbd> Zoom</div>
+        <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> Zurufe</div>
+      </div>
+      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe.</p>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
+    <div id="hud-left">
+      <div id="hud-section">Tor 1 · Wareneingang</div>
+      <div id="hud-height">0 m</div>
+      <div id="hud-best">Rekord 0 m</div>
+      <div id="hud-timer">00:00</div>
+    </div>
+    <div id="hud-right">
+      <div id="hud-room"></div>
+      <div id="hud-players"></div>
+    </div>
+    <div id="tension" class="hidden">SEIL GESPANNT</div>
+    <div id="brace" class="hidden">FESTGEHALTEN</div>
+    <div id="toasts"></div>
+    <div id="crosshair"></div>
+  </div>
+
+  <div id="paused" class="overlay hidden"><div class="card small-card">
+    <h2>Pause</h2>
+    <p>Klicken, um weiterzuklettern.</p>
+    <button id="copylink" class="ghost" type="button">Einladungslink kopieren</button>
+  </div></div>
+
+  <div id="finish" class="overlay hidden"><div class="card">
+    <div class="logo">ZUGE<span>STELLT</span></div>
+    <p id="finish-text"></p>
+    <ol id="board"></ol>
+    <button id="again" class="primary" type="button">Neue Schicht (alle zurück zum Start)</button>
+    <button id="stay" class="ghost" type="button">Weiter umsehen</button>
+  </div></div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

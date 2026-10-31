@@ -1,0 +1,20 @@
+{
+  "name": "hochstapler",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "dev:worker": "vite build && wrangler dev",
+    "deploy": "vite build && wrangler deploy",
+    "validate": "node scripts/validate-level.mjs && node scripts/simulate-jumps.mjs && node scripts/simulate-movers.mjs"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0",
+    "wrangler": "^4.40.0"
+  }
+}

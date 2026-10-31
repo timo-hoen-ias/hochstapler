@@ -1,0 +1,439 @@
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { makeTextures, textCanvas } from './textures.js';
+
+const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
+
+// Box mit UVs in Weltmaßstab (Textur wiederholt sich alle `scale` Meter)
+function boxGeo(min, max, scale) {
+  const w = max[0] - min[0], h = max[1] - min[1], d = max[2] - min[2];
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  if (scale) {
+    const dims = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]];
+    for (let f = 0; f < 6; f++) {
+      for (let v = 0; v < 4; v++) {
+        const i = f * 4 + v;
+        uv.setXY(i, uv.getX(i) * dims[f][0] / scale, uv.getY(i) * dims[f][1] / scale);
+      }
+    }
+  }
+  g.translate((min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2);
+  return g;
+}
+
+const UV_SCALE = {
+  ground: 16, concrete: 2, goods: 1.2, crate: 0, carton: 0, beam: 1, upright: 1, grate: 1,
+  belt: 1, hazard: 1, trailer: 0, goal: 0, lift: 1,
+};
+
+export class Renderer {
+  constructor(container, level) {
+    this.level = level;
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    container.appendChild(this.renderer.domElement);
+
+    this.scene = new THREE.Scene();
+    this.camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 600);
+    this.tex = makeTextures();
+    this.mats = this.makeMaterials();
+
+    this.setupSky();
+    this.setupLights();
+    this.buildStatics();
+    this.buildMovers();
+    this.buildDecor();
+    this.buildSigns();
+    this.buildScenery();
+    this.buildGoal();
+
+    this.avatars = new Map();
+    this.ropes = [];
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  resize() {
+    this.camera.aspect = window.innerWidth / window.innerHeight;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  makeMaterials() {
+    const t = this.tex;
+    const std = (o) => new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05, ...o });
+    const m = {
+      ground: std({ map: t.ground }),
+      concrete: std({ map: t.concrete }),
+      goods: std({ map: t.goods, roughness: 0.6 }),
+      crate: std({ map: t.crate }),
+      carton: std({ map: t.carton }),
+      beam: std({ map: t.beam, metalness: 0.3, roughness: 0.55 }),
+      upright: std({ map: t.upright, metalness: 0.3, roughness: 0.55 }),
+      grate: std({ map: t.grate, metalness: 0.5, roughness: 0.5 }),
+      hazard: std({ map: t.hazard }),
+      lift: std({ map: t.hazard }),
+      trailer: std({ map: t.trailer, roughness: 0.5 }),
+      goal: std({ map: t.goal }),
+    };
+    CONTAINER_COLORS.forEach((c, i) => {
+      m['container' + i] = std({ map: t.container, color: c, metalness: 0.35, roughness: 0.55 });
+    });
+    return m;
+  }
+
+  setupSky() {
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 256;
+    const x = c.getContext('2d');
+    const g = x.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0, '#2b2d5c');
+    g.addColorStop(0.35, '#7c6aa3');
+    g.addColorStop(0.5, '#f0a875');
+    g.addColorStop(0.56, '#f7c98e');
+    g.addColorStop(1, '#5d5653');
+    x.fillStyle = g; x.fillRect(0, 0, 4, 256);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.mapping = THREE.EquirectangularReflectionMapping;
+    this.scene.background = t;
+    this.scene.fog = new THREE.Fog(0xe8b48a, 60, 260);
+  }
+
+  setupLights() {
+    this.scene.add(new THREE.HemisphereLight(0xbfd2ff, 0x5a4636, 1.3));
+    const sun = new THREE.DirectionalLight(0xffd2a0, 2.6);
+    sun.position.set(-40, 60, 25);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const s = sun.shadow.camera;
+    s.left = -30; s.right = 30; s.top = 30; s.bottom = -30; s.near = 1; s.far = 160;
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.03;
+    this.scene.add(sun, sun.target);
+    this.sun = sun;
+  }
+
+  buildStatics() {
+    const groups = {};
+    for (const b of this.level.statics) {
+      const key = b.belt ? null : b.mat;
+      if (!key) continue;
+      const scale = b.mat.startsWith('container') ? 2.4 : UV_SCALE[b.mat] ?? 1;
+      (groups[key] ||= []).push(boxGeo(b.min, b.max, scale));
+    }
+    for (const [mat, geos] of Object.entries(groups)) {
+      const mesh = new THREE.Mesh(mergeGeometries(geos), this.mats[mat] || this.mats.concrete);
+      mesh.castShadow = mat !== 'ground';
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+    // Förderbänder einzeln (eigene, laufende Textur)
+    this.belts = [];
+    for (const b of this.level.statics) {
+      if (!b.belt) continue;
+      const t = this.tex.belt.clone();
+      t.needsUpdate = true;
+      const mat = new THREE.MeshStandardMaterial({ map: t, roughness: 0.7 });
+      const mesh = new THREE.Mesh(boxGeo(b.min, b.max, 1), mat);
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.belts.push({ tex: t, v: b.belt });
+      // Rollenrahmen
+      this.addDecorBox([b.min[0] - 0.05, b.min[1] - 0.3, b.min[2] - 0.05], [b.max[0] + 0.05, b.min[1], b.max[2] + 0.05], this.mats.upright);
+    }
+  }
+
+  addDecorBox(min, max, mat) {
+    const mesh = new THREE.Mesh(boxGeo(min, max, 1), mat);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    this.scene.add(mesh);
+    return mesh;
+  }
+
+  buildMovers() {
+    this.moverMeshes = [];
+    for (const m of this.level.movers) {
+      const g = new THREE.Group();
+      const b = m.base;
+      const local = (min, max) => boxGeo(
+        [min[0] - b.min[0], min[1] - b.min[1], min[2] - b.min[2]],
+        [max[0] - b.min[0], max[1] - b.min[1], max[2] - b.min[2]], 1);
+      const mat = m.mat === 'crate' ? this.mats.crate : this.mats.lift;
+      const body = new THREE.Mesh(local(b.min, b.max), mat);
+      body.castShadow = body.receiveShadow = true;
+      g.add(body);
+
+      if (m.kind === 'lift') {
+        // Gabelstapler-Mast neben der Plattform
+        const [sx, sz] = m.side;
+        const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2;
+        const hw = Math.abs(sx) ? (b.max[0] - b.min[0]) / 2 : (b.max[2] - b.min[2]) / 2;
+        const mx = cx + sx * (hw + 0.25), mz = cz + sz * (hw + 0.25);
+        const top = b.max[1] + m.delta[1] + 2.2;
+        const offs = [-0.7, 0.7];
+        for (const o of offs) {
+          const px = mx + (sz ? o : 0), pz = mz + (sx ? o : 0);
+          this.addDecorBox([px - 0.09, b.min[1] - 0.2, pz - 0.09], [px + 0.09, top, pz + 0.09], this.mats.hazard);
+        }
+        const yellow = new THREE.MeshStandardMaterial({ color: 0xf2c014, roughness: 0.5 });
+        this.addDecorBox(
+          [Math.min(mx - (sz ? 0.8 : 0.1), mx + (sz ? 0.8 : 0.1)), top - 0.15, Math.min(mz - (sx ? 0.8 : 0.1), mz + (sx ? 0.8 : 0.1))],
+          [Math.max(mx - (sz ? 0.8 : 0.1), mx + (sz ? 0.8 : 0.1)), top, Math.max(mz - (sx ? 0.8 : 0.1), mz + (sx ? 0.8 : 0.1))], yellow);
+      }
+      if (m.kind === 'swing') {
+        // Kranseil: Linie vom Ausleger zum Haken
+        const lg = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(6), 3));
+        const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x222222 }));
+        line.frustumCulled = false;
+        this.scene.add(line);
+        const cx = (b.min[0] + b.max[0]) / 2 + m.delta[0] / 2;
+        const cz = (b.min[2] + b.max[2]) / 2 + m.delta[2] / 2;
+        const pivotY = b.max[1] + 9;
+        m._pivot = [cx, pivotY, cz];
+        m._line = line;
+        // Kranausleger
+        const ex = Math.abs(m.delta[0]) / 2 + 3, ez = Math.abs(m.delta[2]) / 2 + 3;
+        const craneMat = new THREE.MeshStandardMaterial({ color: 0xf2c014, roughness: 0.5, metalness: 0.3 });
+        this.addDecorBox([cx - (m.delta[0] ? ex : 0.4), pivotY, cz - (m.delta[2] ? ez : 0.4)], [cx + (m.delta[0] ? ex : 0.4), pivotY + 0.8, cz + (m.delta[2] ? ez : 0.4)], craneMat);
+        const hook = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.05, 6, 12, Math.PI * 1.4), new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 }));
+        hook.position.set((b.max[0] - b.min[0]) / 2, b.max[1] - b.min[1] + 0.35, (b.max[2] - b.min[2]) / 2);
+        g.add(hook);
+      }
+      g.position.set(b.min[0], b.min[1], b.min[2]);
+      this.scene.add(g);
+      this.moverMeshes.push({ m, g });
+    }
+  }
+
+  buildDecor() {
+    const groups = {};
+    for (const d of this.level.decor) (groups[d.mat] ||= []).push(boxGeo(d.min, d.max, 1));
+    for (const [mat, geos] of Object.entries(groups)) {
+      const mesh = new THREE.Mesh(mergeGeometries(geos), this.mats[mat]);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+  }
+
+  buildSigns() {
+    for (const s of this.level.signs) {
+      const t = textCanvas([s.text, s.sub]);
+      const mat = new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, toneMapped: false });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 1.1), mat);
+      mesh.position.set(...s.pos);
+      mesh.rotation.y = Math.atan2(s.face[0], s.face[1]);
+      this.scene.add(mesh);
+      const post = this.addDecorBox([s.pos[0] - 0.06, s.pos[1] - 2.6, s.pos[2] - 0.06], [s.pos[0] + 0.06, s.pos[1] - 0.55, s.pos[2] + 0.06], this.mats.upright);
+      post.castShadow = false;
+    }
+  }
+
+  buildScenery() {
+    // Umliegende Lagerhallen, LKW und Lichtmasten – nur Kulisse
+    const hallMat = new THREE.MeshStandardMaterial({ color: 0x8d98a6, roughness: 0.8 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x4e5866, roughness: 0.7 });
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x2c3540 });
+    const halls = [
+      [-110, -40, 70, 18, 40], [-100, 60, 50, 14, 60], [100, -70, 60, 22, 50],
+      [110, 40, 40, 16, 70], [0, -130, 120, 20, 30], [20, 120, 80, 15, 30],
+    ];
+    for (const [x, z, w, h, d] of halls) {
+      this.addDecorBox([x - w / 2, 0, z - d / 2], [x + w / 2, h, z + d / 2], hallMat);
+      this.addDecorBox([x - w / 2 - 0.5, h, z - d / 2 - 0.5], [x + w / 2 + 0.5, h + 1.2, z + d / 2 + 0.5], roofMat);
+      for (let i = -w / 2 + 6; i < w / 2 - 4; i += 9) {
+        this.addDecorBox([x + i, 0, z + d / 2], [x + i + 5, 6, z + d / 2 + 0.2], doorMat);
+      }
+    }
+    // Asphalt um den Hof
+    const asphalt = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshStandardMaterial({ color: 0x4a4744, roughness: 1 }));
+    asphalt.rotation.x = -Math.PI / 2; asphalt.position.y = -0.05; asphalt.receiveShadow = true;
+    this.scene.add(asphalt);
+    // Lichtmasten
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x555b62, metalness: 0.6, roughness: 0.4 });
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0xfff1c4, emissive: 0xffd27a, emissiveIntensity: 2 });
+    for (let a = 0; a < 8; a++) {
+      const r = 62, x = Math.cos(a / 8 * Math.PI * 2) * r, z = Math.sin(a / 8 * Math.PI * 2) * r;
+      this.addDecorBox([x - 0.2, 0, z - 0.2], [x + 0.2, 18, z + 0.2], poleMat);
+      this.addDecorBox([x - 0.8, 18, z - 0.5], [x + 0.8, 18.5, z + 0.5], lampMat);
+    }
+  }
+
+  buildGoal() {
+    const g = this.level.goal;
+    const cx = (g.min[0] + g.max[0]) / 2, cz = (g.min[2] + g.max[2]) / 2;
+    const y = g.min[1];
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 5), new THREE.MeshStandardMaterial({ color: 0xdddddd, metalness: 0.6 }));
+    pole.position.set(cx + 2.5, y + 2.5, cz + 2.5);
+    this.scene.add(pole);
+    const flagT = textCanvas(['ZUGESTELLT ✓'], { w: 256, h: 128, size: 30, bg: '#d2461f' });
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 0.9), new THREE.MeshBasicMaterial({ map: flagT, side: THREE.DoubleSide }));
+    flag.position.set(cx + 2.5 + 0.9, y + 4.4, cz + 2.5);
+    this.scene.add(flag);
+    this.flag = flag;
+    // Riesiges Paket als Wahrzeichen
+    const pkg = this.addDecorBox([cx - 1.2, y, cz - 2.8], [cx + 1.2, y + 2.4, cz - 0.4], this.mats.carton);
+    pkg.castShadow = true;
+    // Leuchtfeuer
+    const beacon = new THREE.PointLight(0xffb36b, 30, 25);
+    beacon.position.set(cx, y + 4, cz);
+    this.scene.add(beacon);
+  }
+
+  // ───────── Spielfiguren ─────────
+  createAvatar(id, name, color) {
+    const g = new THREE.Group();
+    const vestMat = new THREE.MeshStandardMaterial({ map: this.tex.vest(color), roughness: 0.6 });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x2b3442, roughness: 0.8 });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.7 });
+    const hat = new THREE.MeshStandardMaterial({ color: 0xf2c014, roughness: 0.4 });
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.32), vestMat);
+    torso.position.y = 1.08;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skin);
+    head.position.y = 1.62;
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), hat);
+    helmet.position.y = 1.68;
+    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.03, 16), hat);
+    brim.position.y = 1.68;
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+    visor.position.set(0, 1.62, 0.18);
+
+    const limb = (w, h, mat) => {
+      const pivot = new THREE.Group();
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), mat);
+      m.position.y = -h / 2;
+      m.castShadow = true;
+      pivot.add(m);
+      return pivot;
+    };
+    const legL = limb(0.2, 0.75, dark); legL.position.set(-0.14, 0.75, 0);
+    const legR = limb(0.2, 0.75, dark); legR.position.set(0.14, 0.75, 0);
+    const armL = limb(0.15, 0.6, vestMat); armL.position.set(-0.36, 1.36, 0);
+    const armR = limb(0.15, 0.6, vestMat); armR.position.set(0.36, 1.36, 0);
+    // Gurt / Karabiner, an dem das Seil hängt
+    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 6, 16), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+    belt.rotation.x = Math.PI / 2; belt.position.y = 0.8;
+
+    for (const m of [torso, head, helmet, brim, visor, belt]) { m.castShadow = true; g.add(m); }
+    g.add(legL, legR, armL, armR);
+
+    const tag = this.makeTag(name, color);
+    tag.position.y = 2.25;
+    g.add(tag);
+
+    this.scene.add(g);
+    const av = { g, legL, legR, armL, armR, torso, tag, phase: 0, color };
+    this.avatars.set(id, av);
+    return av;
+  }
+
+  makeTag(name, color) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 64;
+    const x = c.getContext('2d');
+    x.fillStyle = 'rgba(15,20,30,0.7)';
+    x.beginPath(); x.roundRect(4, 8, 248, 48, 14); x.fill();
+    x.fillStyle = color; x.fillRect(16, 22, 18, 18);
+    x.fillStyle = '#fff'; x.font = 'bold 28px sans-serif'; x.textAlign = 'center';
+    x.fillText(name, 140, 42);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false }));
+    s.scale.set(1.6, 0.4, 1);
+    s.renderOrder = 10;
+    return s;
+  }
+
+  removeAvatar(id) {
+    const av = this.avatars.get(id);
+    if (!av) return;
+    this.scene.remove(av.g);
+    this.avatars.delete(id);
+  }
+
+  updateAvatar(id, pos, vel, yaw, grounded, braced, dt, isLocal) {
+    const av = this.avatars.get(id);
+    if (!av) return;
+    av.g.position.set(pos[0], pos[1], pos[2]);
+    // weiche Drehung
+    let dy = yaw - av.g.rotation.y;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    av.g.rotation.y += dy * Math.min(1, dt * 12);
+    const speed = Math.hypot(vel[0], vel[2]);
+    if (grounded) {
+      av.phase += dt * speed * 2.2;
+      const s = Math.sin(av.phase) * Math.min(1, speed / 4) * 0.8;
+      av.legL.rotation.x = s; av.legR.rotation.x = -s;
+      av.armL.rotation.x = -s; av.armR.rotation.x = s;
+      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
+    } else {
+      av.legL.rotation.x = 0.5; av.legR.rotation.x = -0.3;
+      av.armL.rotation.z = -2.4; av.armR.rotation.z = 2.4;
+    }
+    if (braced) {
+      av.legL.rotation.x = -0.9; av.legR.rotation.x = 0.6;
+      av.armL.rotation.x = -1.2; av.armR.rotation.x = -1.2;
+      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
+      av.torso.rotation.x = -0.25;
+    } else av.torso.rotation.x = 0;
+    av.tag.visible = !isLocal;
+  }
+
+  // ───────── Seile ─────────
+  setRopes(pairs) {
+    while (this.ropes.length < pairs.length) {
+      const mat = new THREE.MeshStandardMaterial({ color: 0xd8b26a, roughness: 0.9 });
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+      mesh.castShadow = true;
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+      this.ropes.push(mesh);
+    }
+    for (let i = 0; i < this.ropes.length; i++) {
+      const mesh = this.ropes[i];
+      if (i >= pairs.length) { mesh.visible = false; continue; }
+      mesh.visible = true;
+      const [a, b, L] = pairs[i];
+      const A = new THREE.Vector3(a[0], a[1] + 0.8, a[2]);
+      const B = new THREE.Vector3(b[0], b[1] + 0.8, b[2]);
+      const d = A.distanceTo(B);
+      const sag = d < L ? Math.sqrt(L * L - d * d) * 0.5 : 0;
+      const mid = A.clone().add(B).multiplyScalar(0.5);
+      mid.y -= sag;
+      const curve = new THREE.QuadraticBezierCurve3(A, mid, B);
+      mesh.geometry.dispose();
+      mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.035, 5, false);
+      const tension = Math.min(1, Math.max(0, (d / L - 0.9) * 8));
+      mesh.material.color.setRGB(0.85 + 0.1 * tension, 0.7 - 0.45 * tension, 0.42 - 0.25 * tension);
+    }
+  }
+
+  update(dt, colliders, focus) {
+    for (let i = 0; i < this.moverMeshes.length; i++) {
+      const { m, g } = this.moverMeshes[i];
+      const b = colliders.moverBoxes[i];
+      g.position.set(b.min[0], b.min[1], b.min[2]);
+      if (m._line) {
+        const p = m._line.geometry.attributes.position;
+        p.setXYZ(0, ...m._pivot);
+        p.setXYZ(1, (b.min[0] + b.max[0]) / 2, b.max[1] + 0.5, (b.min[2] + b.max[2]) / 2);
+        p.needsUpdate = true;
+      }
+    }
+    for (const belt of this.belts) {
+      belt.tex.offset.x -= belt.v[0] * dt;
+      belt.tex.offset.y += belt.v[2] * dt;
+    }
+    if (this.flag) this.flag.rotation.y = Math.sin(performance.now() / 600) * 0.3;
+    // Schattenkamera folgt dem Spieler
+    this.sun.position.set(focus[0] - 40, focus[1] + 60, focus[2] + 25);
+    this.sun.target.position.set(focus[0], focus[1], focus[2]);
+    this.renderer.render(this.scene, this.camera);
+  }
+}
