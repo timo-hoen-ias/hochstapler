@@ -1,10 +1,13 @@
 // Prüft das Level auf Erreichbarkeit (Sprunghöhe/Weite), Überschneidungen und Kopffreiheit.
 import { buildLevel } from '../client/src/level.js';
 
-const MAX_RISE = 1.35;
 const MAX_GAP = 2.45;
+const maxRise = (special) => (special === 'bounce' ? 3.3 : special === 'fan' ? 4.2 : 1.35);
+const t0 = Date.now();
 const level = buildLevel();
+const buildMs = Date.now() - t0;
 let problems = 0;
+const report = (msg) => { problems++; if (problems < 40) console.log('✗ ' + msg); };
 
 const inter = (a, b, pad = 0) =>
   a.min[0] < b.max[0] - pad && a.max[0] > b.min[0] + pad &&
@@ -36,47 +39,52 @@ for (let i = 1; i < level.path.length; i++) {
   const to = level.path[i].box;
   const rise = to.max[1] - from.max[1];
   const gap = gapXZ(from, to);
-  if (rise > MAX_RISE || gap > MAX_GAP) {
-    problems++;
-    console.log(`✗ Schritt ${i}: Anstieg ${rise.toFixed(2)} m, Lücke ${gap.toFixed(2)} m`);
-  }
+  if (rise > maxRise(level.path[i - 1].special) || gap > MAX_GAP) report(`Schritt ${i}: Anstieg ${rise.toFixed(2)} m, Lücke ${gap.toFixed(2)} m`);
 }
 
-const solids = level.statics.filter((s) => s.mat !== 'ground');
+const solids = level.statics.filter((s) => !s.big);
+// Raster für schnelle Paarsuche
+const cell = 6, grid = new Map();
+solids.forEach((s, i) => {
+  for (let x = Math.floor(s.min[0] / cell); x <= Math.floor(s.max[0] / cell); x++)
+    for (let y = Math.floor(s.min[1] / cell); y <= Math.floor((s.max[1] + 2) / cell); y++)
+      for (let z = Math.floor(s.min[2] / cell); z <= Math.floor(s.max[2] / cell); z++) {
+        const k = `${x},${y},${z}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+});
+const near = (b) => {
+  const out = new Set();
+  for (let x = Math.floor(b.min[0] / cell); x <= Math.floor(b.max[0] / cell); x++)
+    for (let y = Math.floor(b.min[1] / cell); y <= Math.floor(b.max[1] / cell); y++)
+      for (let z = Math.floor(b.min[2] / cell); z <= Math.floor(b.max[2] / cell); z++)
+        for (const j of grid.get(`${x},${y},${z}`) || []) out.add(j);
+  return out;
+};
+
 for (let i = 0; i < solids.length; i++) {
-  for (let j = i + 1; j < solids.length; j++) {
-    if (inter(solids[i], solids[j], 0.01)) {
-      problems++;
-      console.log(`✗ Überschneidung: #${i} (${solids[i].mat}) und #${j} (${solids[j].mat})`);
-    }
-  }
-  // Kopffreiheit über jeder Oberfläche
   const s = solids[i];
-  const head = { min: [s.min[0] + 0.05, s.max[1] + 0.01, s.min[2] + 0.05], max: [s.max[0] - 0.05, s.max[1] + 2.0, s.max[2] - 0.05] };
-  for (let j = 0; j < solids.length; j++) {
-    if (j !== i && inter(head, solids[j])) {
-      problems++;
-      console.log(`✗ Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
-    }
-  }
+  for (const j of near(s)) if (j > i && inter(s, solids[j], 0.01)) report(`Überschneidung: #${i} (${s.mat}) und #${j} (${solids[j].mat})`);
+  const head = { min: [s.min[0] - 0.3, s.max[1] + 0.01, s.min[2] - 0.3], max: [s.max[0] + 0.3, s.max[1] + 2.0, s.max[2] + 0.3] };
+  for (const j of near(head)) if (j !== i && inter(head, solids[j])) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
 }
 
 for (const [k, m] of level.movers.entries()) {
   const sw = sweep(m);
   const room = { min: sw.min, max: [sw.max[0], sw.max[1] + 1.9, sw.max[2]] };
-  for (const [j, s] of solids.entries()) {
-    if (inter(room, s, 0.02)) {
-      problems++;
-      console.log(`✗ Mover ${k} (${m.kind}) kollidiert mit #${j} (${s.mat})`);
-    }
-  }
+  for (const j of near(room)) if (inter(room, solids[j], 0.02)) report(`Mover ${k} (${m.kind}) kollidiert mit #${j} (${solids[j].mat})`);
+}
+for (const [k, z] of level.zones.entries()) {
+  for (const j of near(z)) if (inter(z, solids[j], 0.02)) report(`Lüfter ${k} ist verbaut von #${j} (${solids[j].mat})`);
 }
 
-const top = Math.max(...level.statics.map((s) => s.max[1]));
-console.log(`${level.path.length} Kletterpunkte, ${level.movers.length} bewegliche Elemente, Gipfel bei ${top.toFixed(1)} m`);
-for (const s of level.sectionStarts) console.log(`  Abschnitt ${s.sec + 1} ab ${s.y.toFixed(1)} m`);
-const xs = level.statics.filter((s) => s.mat !== 'ground').flatMap((s) => [s.min[0], s.max[0]]);
-const zs = level.statics.filter((s) => s.mat !== 'ground').flatMap((s) => [s.min[2], s.max[2]]);
+const top = level.goal.min[1];
+const count = (k) => level.path.filter((p) => p.special === k || p.kind === k).length;
+console.log(`${level.path.length} Kletterpunkte, ${level.movers.length} bewegliche Elemente, ${level.checkpoints.length} Zwischenstopps, ${level.sections.length} Abschnitte, Ziel bei ${top.toFixed(0)} m (gebaut in ${buildMs} ms)`);
+console.log(`  Eis ${count('ice')}, Luftpolster ${count('bounce')}, Lüfter ${count('fan')}, Kippschalen ${count('blink')}, Bänder ${level.statics.filter((s) => s.belt).length}`);
+const xs = solids.flatMap((s) => [s.min[0], s.max[0]]);
+const zs = solids.flatMap((s) => [s.min[2], s.max[2]]);
 console.log(`  Ausdehnung x ${Math.min(...xs).toFixed(0)}..${Math.max(...xs).toFixed(0)}, z ${Math.min(...zs).toFixed(0)}..${Math.max(...zs).toFixed(0)}`);
 if (problems) { console.log(`${problems} Problem(e)`); process.exit(1); }
 console.log('✓ Level ok');

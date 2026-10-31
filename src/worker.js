@@ -83,11 +83,14 @@ export class Room extends DurableObject {
         const info = { id, name, slot, color: COLORS[slot % COLORS.length] };
         ws.serializeAttachment(info);
 
+        // Schichtzeit läuft nur, solange jemand im Raum ist, und summiert sich über Sitzungen
         let startedAt = await this.ctx.storage.get('startedAt');
         if (!others.length || !startedAt) {
           startedAt = Date.now();
           await this.ctx.storage.put('startedAt', startedAt);
         }
+        const played = (await this.ctx.storage.get('played')) || 0;
+        const cp = (await this.ctx.storage.get('cp')) || 0;
         const board = (await this.ctx.storage.get('board')) || [];
 
         this.send(ws, {
@@ -95,6 +98,8 @@ export class Room extends DurableObject {
           you: info,
           serverTime: Date.now(),
           startedAt,
+          played,
+          cp,
           board,
           players: others.map((p) => ({
             id: p.id, name: p.name, slot: p.slot, color: p.color,
@@ -118,10 +123,26 @@ export class Room extends DurableObject {
         if (!me.id) return;
         this.broadcast({ t: 'emote', id: me.id, e: String(m.e || '').slice(0, 24) }, ws);
         return;
+      case 'cp': {
+        // Zwischenstopp: Fortschritt des ganzen Teams, wird dauerhaft gespeichert
+        if (!me.id) return;
+        const i = Math.floor(Number(m.i));
+        if (!Number.isFinite(i) || i < 0 || i > 10000) return;
+        const cur = (await this.ctx.storage.get('cp')) || 0;
+        if (i <= cur) return;
+        await this.ctx.storage.put('cp', i);
+        this.broadcast({ t: 'cp', i, name: me.name }, ws);
+        return;
+      }
+      case 'warp':
+        if (!me.id) return;
+        this.broadcast({ t: 'warp', name: me.name }, ws);
+        return;
       case 'goal': {
         if (!me.id) return;
         const startedAt = (await this.ctx.storage.get('startedAt')) || Date.now();
-        const time = Date.now() - startedAt;
+        const played = (await this.ctx.storage.get('played')) || 0;
+        const time = played + Date.now() - startedAt;
         const team = this.players().map((p) => p.name).join(', ');
         let board = (await this.ctx.storage.get('board')) || [];
         board.push({ team, time, at: Date.now() });
@@ -134,7 +155,7 @@ export class Room extends DurableObject {
       case 'restart': {
         if (!me.id) return;
         const startedAt = Date.now();
-        await this.ctx.storage.put('startedAt', startedAt);
+        await this.ctx.storage.put({ startedAt, played: 0, cp: 0 });
         this.broadcast({ t: 'restart', by: me.name, startedAt });
         return;
       }
@@ -142,18 +163,27 @@ export class Room extends DurableObject {
   }
 
   async webSocketClose(ws) {
-    this.leave(ws);
+    await this.leave(ws);
   }
 
   async webSocketError(ws) {
-    this.leave(ws);
+    await this.leave(ws);
   }
 
-  leave(ws) {
+  async leave(ws) {
     const a = ws.deserializeAttachment();
     if (!a || !a.id) return;
     ws.serializeAttachment({ id: null });
     this.lastState.delete(a.id);
     this.broadcast({ t: 'leave', id: a.id, name: a.name }, ws);
+    // Letzter Spieler raus: gespielte Zeit sichern, Uhr anhalten
+    if (!this.players().length) {
+      const startedAt = await this.ctx.storage.get('startedAt');
+      if (startedAt) {
+        const played = ((await this.ctx.storage.get('played')) || 0) + (Date.now() - startedAt);
+        await this.ctx.storage.put('played', played);
+        await this.ctx.storage.delete('startedAt');
+      }
+    }
   }
 }

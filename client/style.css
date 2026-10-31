@@ -11,7 +11,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1d26; col
 
 .overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(30,25,40,0.55), rgba(10,10,20,0.85)); z-index: 20; }
 .card { width: min(440px, 100%); background: var(--panel); border: 1px solid rgba(255,255,255,0.08); border-top: 6px solid var(--accent); border-radius: 14px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); backdrop-filter: blur(6px); }
-.small-card { width: min(320px, 100%); text-align: center; }
+.small-card { width: min(340px, 100%); text-align: center; }
+.small-card button { width: 100%; }
 .logo { font-weight: 900; font-size: 44px; letter-spacing: 2px; line-height: 1; }
 .logo span { color: var(--accent); }
 .tag { margin: 8px 0 18px; opacity: 0.85; }
@@ -31,7 +32,7 @@ kbd { background: rgba(255,255,255,0.12); border-radius: 4px; padding: 1px 6px; 
 #hud-left { position: absolute; left: 16px; top: 16px; background: var(--panel); padding: 12px 16px; border-radius: 10px; border-left: 5px solid var(--accent); min-width: 200px; }
 #hud-section { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--accent); }
 #hud-height { font-size: 34px; font-weight: 900; }
-#hud-best, #hud-timer { font-size: 13px; opacity: 0.8; }
+#hud-best, #hud-timer, #hud-cp { font-size: 13px; opacity: 0.8; }
 #hud-right { position: absolute; right: 16px; top: 16px; background: var(--panel); padding: 10px 14px; border-radius: 10px; min-width: 190px; }
 #hud-room { font-size: 12px; opacity: 0.8; margin-bottom: 6px; letter-spacing: 1px; }
 .pl { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 3px 0; }

@@ -30,14 +30,52 @@ Sichtfeld, Empfindlichkeit für Maus/Touch und Controller, Y-Achse invertieren,
 Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln und Lautstärken.
 Einstellungen werden im Browser gespeichert.
 
-## Die sechs Abschnitte
+## Aufbau des Turms (~1090 m, 42 Abschnitte)
+
+**Akt 1 – von Hand gebaut** (bis ~77 m, zum Reinkommen):
 
 1. **Tor 1 · Wareneingang** – Palettenstapel, Kisten, ein LKW-Auflieger
 2. **Halle 2 · Hochregallager** – schmale Regaltraversen und Gitterroste
 3. **Halle 3 · Fördertechnik** – Förderbänder, die dich seitlich oder rückwärts schieben
 4. **Halle 4 · Staplerzone** – Gabelstapler-Lifte und fahrende Shuttles
 5. **Kai 5 · Containerhafen** – Containerstapel und schwingende Kranlasten
-6. **Dach · Versand** – alles zusammen, oben wartet das Ziel (~77 m)
+6. **Dach · Versand** – Ende von Akt 1
+
+**Ab Halle 7 – 36 erzeugte Abschnitte** mit steigender Schwierigkeit (größere
+Lücken, kleinere Flächen, schnellere Takte). Zwölf Themen wiederholen sich in drei
+Stufen (z. B. „Kühlhaus“, „Kühlhaus II“, „Kühlhaus III“):
+
+| Thema | Besonderheit |
+| --- | --- |
+| Kühlhaus | Eisflächen – kaum Bodenhaftung |
+| Paketzentrum | Kippschalen, die blinken und dann wegklappen |
+| Reifenlager | Reifenstapel federn dich hoch (Shift = stehen bleiben) |
+| Kleinteilelager | schmale Traversen, Shuttles |
+| Lüftungszentrale | Aufwind trägt dich mehrere Meter nach oben |
+| Gefahrstofflager | Fässer, Traversen, Kippschalen |
+| Holzlager | schwingende Kranlasten |
+| Getränkelager | Lifte im Takt |
+| Gleisanschluss | rangierende Waggons |
+| Retourenhalle | Bänder und Reifen durcheinander |
+| Schwerlastregal | große Abstände, Lifte |
+| Hochsilo | Paternoster-Lifte und Lüfter |
+
+Der Generator ist deterministisch (fester Seed), alle Clients bauen also exakt
+denselben Turm. Insgesamt ~1370 Kletterpunkte. Grob geschätzt braucht eine Gruppe
+mit Abstürzen und Absprachen 15–30 Sekunden pro Kletterpunkt, also etwa 6–11
+Stunden – das ist eine Schätzung, kein gemessener Wert.
+
+## Zwischenstopps
+
+Grüne Plattformen mit Lampe sind Zwischenstopps – am Anfang und in der Mitte jedes
+Abschnitts (80 insgesamt). Betritt sie jemand aus dem Team, wird der Fortschritt
+im Raum gespeichert (Durable Object) und die Lampe wird grün.
+
+- Wer mehr als 8 m unter den letzten Zwischenstopp fällt, steigt dort wieder ein.
+- Im Pausemenü holt „Team zum letzten Zwischenstopp holen“ alle zurück, falls ihr feststeckt.
+- Mit demselben Raumcode geht es später weiter – Fortschritt und Schichtzeit bleiben erhalten.
+  Die Schichtzeit läuft nur, solange jemand im Raum ist.
+- „Neue Schicht“ im Zielbildschirm setzt Fortschritt und Zeit zurück.
 
 ## Seil-Regeln
 
@@ -51,7 +89,7 @@ Unachtsamer am Boden mitgerissen wird.
 
 ```bash
 npm install
-npm run validate     # Level prüfen + jeden Sprung und jede Plattform mit der echten Physik simulieren
+npm run validate     # Level prüfen + jeden der ~1370 Übergänge mit der echten Physik durchspielen
 npm run dev:worker   # baut den Client und startet Worker + Durable Object lokal (http://127.0.0.1:8787)
 ```
 
@@ -79,8 +117,8 @@ kostenlosen Workers-Plan nutzbar.
 
 ```
 client/            Three.js-Client (Vite)
-  src/level.js     Level-Daten, deterministisch für alle Clients
-  src/physics.js   Kollision, Sprünge, Förderbänder, Seil-Kopplung
+  src/level.js     Akt 1 + Level-Generator, deterministisch für alle Clients
+  src/physics.js   Kollision (Raumraster), Sprünge, Bänder, Eis, Lüfter, Federn, Seil
   src/render.js    Szene, prozedurale Texturen, Figuren, Seile
   src/net.js       WebSocket + Zeitabgleich (für synchrone Plattformen)
   src/main.js      Spielschleife, Eingabe, HUD
