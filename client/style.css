@@ -334,3 +334,16 @@ body[data-device=pad] .ctl-grid .ctl:nth-child(2) { order: -1; }
   #rotate span { display: block; font-size: 64px; color: var(--accent); margin-bottom: 8px; animation: rot 2.4s ease-in-out infinite; }
 }
 @keyframes rot { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
+
+/* Debug-Konsole (^ oder F8) */
+#debug { position: fixed; left: 0; right: 0; top: 0; z-index: 60; background: rgba(10, 12, 16, 0.88); color: #d8e2ec; font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border-bottom: 2px solid var(--accent); box-shadow: 0 6px 24px rgba(0,0,0,0.5); }
+#debug.hidden { display: none; }
+#debug .debug-log { max-height: 38vh; overflow-y: auto; padding: 10px 16px 4px; white-space: pre-wrap; }
+#debug .debug-log .cmd { color: var(--accent); }
+#debug .debug-log .err { color: #ff7a6b; }
+#debug .debug-log .dim { opacity: 0.6; }
+#debug .debug-line { display: flex; align-items: center; gap: 8px; padding: 6px 16px 10px; }
+#debug .debug-line span { color: var(--accent); font-weight: 700; }
+#debug input { flex: 1; background: transparent; border: 0; outline: none; color: #fff; font: inherit; padding: 4px 0; }
+#debug-badge { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 55; pointer-events: none; background: rgba(200, 40, 40, 0.85); color: #fff; font: 700 12px/1 system-ui, sans-serif; letter-spacing: 1px; padding: 6px 12px; border-radius: 12px; }
+#debug-badge.hidden { display: none; }
