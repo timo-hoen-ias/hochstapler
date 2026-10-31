@@ -31,7 +31,7 @@
         <div><kbd>Maus</kbd> Kamera · <kbd>Rad</kbd> Zoom</div>
         <div><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> Zurufe</div>
       </div>
-      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe.</p>
+      <p class="small">Alle im selben Raum hängen an einem Seil. Wer fällt, zieht die anderen mit – wer festhält, sichert die Gruppe. Zwischenstopps speichern euren Fortschritt im Raum: mit demselben Raumcode geht es später weiter.</p>
     </div>
   </div>
 
@@ -40,6 +40,7 @@
       <div id="hud-section">Tor 1 · Wareneingang</div>
       <div id="hud-height">0 m</div>
       <div id="hud-best">Rekord 0 m</div>
+      <div id="hud-cp"></div>
       <div id="hud-timer">00:00</div>
     </div>
     <div id="hud-right">
@@ -55,6 +56,7 @@
   <div id="paused" class="overlay hidden"><div class="card small-card">
     <h2>Pause</h2>
     <p>Klicken, um weiterzuklettern.</p>
+    <button id="warp" class="ghost" type="button">Team zum letzten Zwischenstopp holen</button>
     <button id="copylink" class="ghost" type="button">Einladungslink kopieren</button>
   </div></div>
 
@@ -62,7 +64,7 @@
     <div class="logo">ZUGE<span>STELLT</span></div>
     <p id="finish-text"></p>
     <ol id="board"></ol>
-    <button id="again" class="primary" type="button">Neue Schicht (alle zurück zum Start)</button>
+    <button id="again" class="primary" type="button">Neue Schicht (Fortschritt löschen, alle zum Start)</button>
     <button id="stay" class="ghost" type="button">Weiter umsehen</button>
   </div></div>
 

@@ -17,7 +17,6 @@ export class Net {
     let ws;
     try { ws = new WebSocket(url); } catch { this.h.offline?.(); return; }
     this.ws = ws;
-    const timeout = setTimeout(() => { if (!this.online) { ws.close(); } }, 5000);
     ws.onopen = () => {
       ws.send(JSON.stringify({ t: 'hello', name: this.name }));
     };
@@ -25,7 +24,6 @@ export class Net {
       let m;
       try { m = JSON.parse(ev.data); } catch { return; }
       if (m.t === 'welcome') {
-        clearTimeout(timeout);
         this.online = true;
         this.offset = m.serverTime - Date.now();
         this.pingTimer = setInterval(() => this.send({ t: 'ping', c: Date.now() }), 2000);
@@ -44,7 +42,6 @@ export class Net {
       this.h.message?.(m);
     };
     ws.onclose = () => {
-      clearTimeout(timeout);
       clearInterval(this.pingTimer);
       const was = this.online;
       this.online = false;

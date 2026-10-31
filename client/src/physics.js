@@ -1,5 +1,5 @@
 // Einfache, deterministische Kletter-Physik mit achsenparallelen Boxen.
-import { moverOffset } from './level.js';
+import { moverOffset, blinkState } from './level.js';
 
 export const PHYS = {
   gravity: 26,
@@ -12,9 +12,14 @@ export const PHYS = {
   coyote: 0.12,
   jumpBuffer: 0.14,
   rope: 4.5,
+  iceAccel: 9,
+  bounce: 15.5,
+  fanMax: 6.5,
 };
 
 const EPS = 1e-4;
+
+const CELL = 4;
 
 export class Colliders {
   constructor(level) {
@@ -23,7 +28,25 @@ export class Colliders {
     this.moverBoxes = level.movers.map((m) => ({
       min: [...m.base.min], max: [...m.base.max], mat: m.mat, mover: m, d: [0, 0, 0], off: [0, 0, 0],
     }));
+    this.blinks = level.statics.filter((s) => s.blink);
+    this.zones = level.zones || [];
+    this.big = level.statics.filter((s) => s.big);
     this.all = [...this.statics, ...this.moverBoxes];
+    // Raumraster für statische Teile (Breitphase)
+    this.grid = new Map();
+    for (const b of this.statics) {
+      if (b.big) continue;
+      for (let x = Math.floor(b.min[0] / CELL); x <= Math.floor(b.max[0] / CELL); x++)
+        for (let y = Math.floor(b.min[1] / CELL); y <= Math.floor(b.max[1] / CELL); y++)
+          for (let z = Math.floor(b.min[2] / CELL); z <= Math.floor(b.max[2] / CELL); z++) {
+            const k = x + ',' + y + ',' + z;
+            let list = this.grid.get(k);
+            if (!list) this.grid.set(k, (list = []));
+            list.push(b);
+          }
+    }
+    this.out = [];
+    this.stamp = 0;
     this.tmp = [0, 0, 0];
     this.t = null;
   }
@@ -39,7 +62,43 @@ export class Colliders {
         b.max[i] = b.mover.base.max[i] + o[i];
       }
     }
+    for (const b of this.blinks) {
+      b.state = blinkState(b, t);
+      b.hidden = b.state === 0;
+    }
     this.t = t;
+  }
+
+  // Alle Kollisionsboxen in der Nähe eines Punktes (Radius r)
+  near(p, r = 3, ry = r + 1) {
+    const out = this.out;
+    out.length = 0;
+    const st = ++this.stamp;
+    for (const b of this.big) out.push(b);
+    const x0 = Math.floor((p[0] - r) / CELL), x1 = Math.floor((p[0] + r) / CELL);
+    const y0 = Math.floor((p[1] - ry) / CELL), y1 = Math.floor((p[1] + ry + 2) / CELL);
+    const z0 = Math.floor((p[2] - r) / CELL), z1 = Math.floor((p[2] + r) / CELL);
+    for (let x = x0; x <= x1; x++)
+      for (let y = y0; y <= y1; y++)
+        for (let z = z0; z <= z1; z++) {
+          const list = this.grid.get(x + ',' + y + ',' + z);
+          if (!list) continue;
+          for (const b of list) if (b._st !== st) { b._st = st; out.push(b); }
+        }
+    for (const b of this.moverBoxes) {
+      if (b.max[0] < p[0] - r - 1 || b.min[0] > p[0] + r + 1 || b.max[2] < p[2] - r - 1 || b.min[2] > p[2] + r + 1) continue;
+      if (b.max[1] < p[1] - ry - 1 || b.min[1] > p[1] + ry + 3) continue;
+      out.push(b);
+    }
+    return out;
+  }
+
+  zoneAt(p) {
+    const y = p[1] + 0.5;
+    for (const z of this.zones) {
+      if (p[0] > z.min[0] && p[0] < z.max[0] && p[2] > z.min[2] && p[2] < z.max[2] && y > z.min[1] && y < z.max[1]) return z;
+    }
+    return null;
   }
 }
 
@@ -51,7 +110,7 @@ export function createBody(pos) {
 }
 
 function overlaps(p, h, b) {
-  return p[0] - h[0] < b.max[0] - EPS && p[0] + h[0] > b.min[0] + EPS &&
+  return !b.hidden && p[0] - h[0] < b.max[0] - EPS && p[0] + h[0] > b.min[0] + EPS &&
     p[1] - h[1] < b.max[1] - EPS && p[1] + h[1] > b.min[1] + EPS &&
     p[2] - h[2] < b.max[2] - EPS && p[2] + h[2] > b.min[2] + EPS;
 }
@@ -87,6 +146,7 @@ function depenetrate(body, cols) {
   const h = PHYS.half;
   const c = centerOf(body);
   for (const b of cols) {
+    if (!b.mover) continue;
     if (!overlaps(c, h, b)) continue;
     let best = Infinity, axis = 0, dir = 1;
     for (let i = 0; i < 3; i++) {
@@ -103,7 +163,7 @@ function depenetrate(body, cols) {
 
 // input: { x, z } gewünschte Laufrichtung (Welt, Länge ≤ 1), jump (gedrückt-Flanke), brace (gehalten)
 export function stepBody(body, input, world, dt) {
-  const cols = world.all;
+  const cols = world.near(body.pos, 3);
 
   // Mit Plattform mitfahren / Förderband
   if (body.grounded && body.ground) {
@@ -124,14 +184,16 @@ export function stepBody(body, input, world, dt) {
   // Horizontale Steuerung
   const wantX = body.braced ? 0 : input.x * PHYS.speed;
   const wantZ = body.braced ? 0 : input.z * PHYS.speed;
-  const acc = (body.grounded ? PHYS.groundAccel : PHYS.airAccel) * dt;
+  const onIce = body.grounded && body.ground && body.ground.ice;
+  const acc = (body.grounded ? (onIce ? PHYS.iceAccel : PHYS.groundAccel) : PHYS.airAccel) * dt;
   const dvx = wantX - body.vel[0];
   const dvz = wantZ - body.vel[2];
   const dl = Math.hypot(dvx, dvz);
   if (dl > 0) {
     const k = Math.min(1, acc / dl);
     // In der Luft nur sanft abbremsen, damit Seilschwünge erhalten bleiben
-    const airKeep = !body.grounded && input.x === 0 && input.z === 0 ? 0.15 : 1;
+    const idle = input.x === 0 && input.z === 0 && !body.braced;
+    const airKeep = idle && (!body.grounded || onIce) ? (onIce ? 0.05 : 0.15) : 1;
     body.vel[0] += dvx * k * airKeep;
     body.vel[2] += dvz * k * airKeep;
   }
@@ -141,6 +203,7 @@ export function stepBody(body, input, world, dt) {
   body.coyote = body.grounded ? PHYS.coyote : body.coyote - dt;
   body.jumpBuf = input.jump ? PHYS.jumpBuffer : body.jumpBuf - dt;
   body.jumped = false;
+  body.bounced = null;
   if (body.jumpBuf > 0 && body.coyote > 0 && !body.braced) {
     body.vel[1] = PHYS.jump;
     // Schwung der Plattform mitnehmen
@@ -151,6 +214,11 @@ export function stepBody(body, input, world, dt) {
     body.jumped = true;
   }
 
+  // Lüfter: Aufwind
+  const zone = world.zoneAt(body.pos);
+  body.inFan = !!zone;
+  if (zone && !body.braced) body.vel[1] = Math.min(body.vel[1] + zone.lift * dt, PHYS.fanMax);
+
   body.vel[1] = Math.max(body.vel[1] - PHYS.gravity * dt, -PHYS.maxFall);
 
   // Achsenweise bewegen: zuerst vertikal (großzügiges Landen auf Kanten)
@@ -159,8 +227,17 @@ export function stepBody(body, input, world, dt) {
   body.ground = null;
   const hy = moveAxis(body, 1, body.vel[1] * dt, cols);
   if (hy) {
-    if (body.vel[1] < 0) { body.grounded = true; body.ground = hy; body.landSpeed = -body.vel[1]; }
+    const falling = body.vel[1] < 0;
     body.vel[1] = 0;
+    if (falling) {
+      body.grounded = true; body.ground = hy;
+      // Luftpolster/Reifen federn – mit Festhalten (Shift) bleibt man stehen
+      if (hy.bounce && !input.brace) {
+        body.vel[1] = PHYS.bounce;
+        body.grounded = false;
+        body.bounced = hy;
+      }
+    }
   }
   if (moveAxis(body, 0, body.vel[0] * dt, cols)) body.vel[0] = 0;
   if (moveAxis(body, 2, body.vel[2] * dt, cols)) body.vel[2] = 0;
@@ -168,11 +245,12 @@ export function stepBody(body, input, world, dt) {
   // Bodenprüfung: knapp unter den Füßen
   if (!body.grounded && body.vel[1] <= 0) {
     const probe = moveAxis(body, 1, -0.03, cols);
-    if (probe) { body.grounded = true; body.ground = probe; }
+    if (probe && !(probe.bounce && !input.brace)) { body.grounded = true; body.ground = probe; }
+    else if (probe) body.pos[1] += 0.03;
     else body.pos[1] += 0.03;
   }
 
-  depenetrate(body, world.moverBoxes);
+  depenetrate(body, cols);
   body.justLanded = body.grounded && !wasGround;
 }
 
@@ -198,7 +276,7 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   corr = Math.min(corr, 0.9); // Netzwerk-Ruckler nicht als Teleport durchreichen
   const nx = dx / dist, ny = dy / dist, nz = dz / dist;
   if (corr > 0) {
-    const cols = world.all;
+    const cols = world.near(body.pos, 3);
     if (moveAxis(body, 1, ny * corr, cols) && ny < 0) { body.grounded = true; }
     moveAxis(body, 0, nx * corr, cols);
     moveAxis(body, 2, nz * corr, cols);

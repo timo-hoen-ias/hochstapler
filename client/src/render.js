@@ -25,6 +25,7 @@ function boxGeo(min, max, scale) {
 const UV_SCALE = {
   ground: 16, concrete: 2, goods: 1.2, crate: 0, carton: 0, beam: 1, upright: 1, grate: 1,
   belt: 1, hazard: 1, trailer: 0, goal: 0, lift: 1,
+  ice: 2.4, tires: 1.6, bin: 0.8, drum: 0.9, timber: 1.6, wagon: 2.4, fan: 0, blink: 0, checkpoint: 0, roof: 0,
 };
 
 export class Renderer {
@@ -52,6 +53,8 @@ export class Renderer {
     this.buildSigns();
     this.buildScenery();
     this.buildGoal();
+    this.buildFans();
+    this.buildCheckpoints();
 
     this.avatars = new Map();
     this.ropes = [];
@@ -80,6 +83,15 @@ export class Renderer {
       lift: std({ map: t.hazard }),
       trailer: std({ map: t.trailer, roughness: 0.5 }),
       goal: std({ map: t.goal }),
+      roof: std({ map: t.roof }),
+      ice: std({ map: t.ice, roughness: 0.15, metalness: 0.1 }),
+      tires: std({ map: t.tires, roughness: 0.95 }),
+      bin: std({ map: t.bin, roughness: 0.5 }),
+      drum: std({ map: t.drum, roughness: 0.5, metalness: 0.3 }),
+      timber: std({ map: t.timber }),
+      wagon: std({ map: t.wagon, metalness: 0.3 }),
+      fan: std({ map: t.fan, metalness: 0.4, roughness: 0.5 }),
+      checkpoint: std({ map: t.checkpoint }),
     };
     CONTAINER_COLORS.forEach((c, i) => {
       m['container' + i] = std({ map: t.container, color: c, metalness: 0.35, roughness: 0.55 });
@@ -122,16 +134,27 @@ export class Renderer {
   buildStatics() {
     const groups = {};
     for (const b of this.level.statics) {
-      const key = b.belt ? null : b.mat;
+      const key = b.belt || b.blink || b.big ? null : b.mat;
       if (!key) continue;
       const scale = b.mat.startsWith('container') ? 2.4 : UV_SCALE[b.mat] ?? 1;
       (groups[key] ||= []).push(boxGeo(b.min, b.max, scale));
     }
+    for (const b of this.level.statics) if (b.big) (groups.ground ||= []).push(boxGeo(b.min, b.max, UV_SCALE.ground));
     for (const [mat, geos] of Object.entries(groups)) {
       const mesh = new THREE.Mesh(mergeGeometries(geos), this.mats[mat] || this.mats.concrete);
       mesh.castShadow = mat !== 'ground';
       mesh.receiveShadow = true;
       this.scene.add(mesh);
+    }
+    // Kippschalen: einzeln, weil sie verschwinden
+    this.blinkMeshes = [];
+    for (const b of this.level.statics) {
+      if (!b.blink) continue;
+      const mat = new THREE.MeshStandardMaterial({ map: this.tex.blink, roughness: 0.6, emissive: 0xff2a00, emissiveIntensity: 0 });
+      const mesh = new THREE.Mesh(boxGeo(b.min, b.max, 0), mat);
+      mesh.castShadow = mesh.receiveShadow = true;
+      this.scene.add(mesh);
+      this.blinkMeshes.push({ b, mesh, mat });
     }
     // Förderbänder einzeln (eigene, laufende Textur)
     this.belts = [];
@@ -164,7 +187,7 @@ export class Renderer {
       const local = (min, max) => boxGeo(
         [min[0] - b.min[0], min[1] - b.min[1], min[2] - b.min[2]],
         [max[0] - b.min[0], max[1] - b.min[1], max[2] - b.min[2]], 1);
-      const mat = m.mat === 'crate' ? this.mats.crate : this.mats.lift;
+      const mat = m.mat === 'crate' ? this.mats.crate : m.mat === 'wagon' ? this.mats.wagon : this.mats.lift;
       const body = new THREE.Mesh(local(b.min, b.max), mat);
       body.castShadow = body.receiveShadow = true;
       g.add(body);
@@ -283,6 +306,64 @@ export class Renderer {
     const beacon = new THREE.PointLight(0xffb36b, 30, 25);
     beacon.position.set(cx, y + 4, cz);
     this.scene.add(beacon);
+  }
+
+  buildFans() {
+    // Aufwind als halbtransparente Säule mit nach oben laufenden Streifen
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 256;
+    const x = c.getContext('2d');
+    for (let i = 0; i < 40; i++) {
+      x.fillStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.5})`;
+      x.fillRect(Math.random() * 64, Math.random() * 256, 2, 20 + Math.random() * 40);
+    }
+    this.windTex = new THREE.CanvasTexture(c);
+    this.windTex.wrapS = this.windTex.wrapT = THREE.RepeatWrapping;
+    const mat = new THREE.MeshBasicMaterial({ map: this.windTex, transparent: true, opacity: 0.35, depthWrite: false, side: THREE.DoubleSide, color: 0xcfe8ff });
+    this.fanBlades = [];
+    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xb8c0c6, metalness: 0.7, roughness: 0.3 });
+    for (const z of this.level.zones) {
+      const geo = boxGeo(z.min, z.max, 0);
+      const m = new THREE.Mesh(geo, mat);
+      m.renderOrder = 5;
+      this.scene.add(m);
+      const r = Math.min(z.max[0] - z.min[0], z.max[2] - z.min[2]) / 2 - 0.15;
+      const blades = new THREE.Group();
+      for (let k = 0; k < 4; k++) {
+        const bl = new THREE.Mesh(new THREE.BoxGeometry(r * 2, 0.04, 0.3), bladeMat);
+        bl.rotation.y = k * Math.PI / 4;
+        blades.add(bl);
+      }
+      blades.position.set((z.min[0] + z.max[0]) / 2, z.min[1] + 0.05, (z.min[2] + z.max[2]) / 2);
+      this.scene.add(blades);
+      this.fanBlades.push(blades);
+    }
+  }
+
+  buildCheckpoints() {
+    // Lampe an jedem Zwischenstopp: rot = noch nicht erreicht, grün = gespeichert
+    this.cpOff = new THREE.MeshStandardMaterial({ color: 0x5a1e14, emissive: 0xc0331c, emissiveIntensity: 0.6 });
+    this.cpOn = new THREE.MeshStandardMaterial({ color: 0x1f5a2a, emissive: 0x3dff6a, emissiveIntensity: 1.4 });
+    const poleMat = this.mats.upright;
+    this.cpLamps = [];
+    for (const cp of this.level.checkpoints) {
+      if (!cp.box) { this.cpLamps.push(null); continue; }
+      const b = cp.box;
+      const x = b.max[0] - 0.12, z = b.max[2] - 0.12, y = b.max[1];
+      const pole = this.addDecorBox([x - 0.05, y, z - 0.05], [x + 0.05, y + 2.4, z + 0.05], poleMat);
+      pole.castShadow = false;
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.18, 12, 8), this.cpOff);
+      lamp.position.set(x, y + 2.55, z);
+      this.scene.add(lamp);
+      this.cpLamps.push(lamp);
+    }
+    this.cpReached = -1;
+  }
+
+  setCheckpointReached(i) {
+    if (i === this.cpReached) return;
+    this.cpReached = i;
+    this.cpLamps.forEach((l, k) => { if (l) l.material = k <= i ? this.cpOn : this.cpOff; });
   }
 
   // ───────── Spielfiguren ─────────
@@ -430,6 +511,13 @@ export class Renderer {
       belt.tex.offset.x -= belt.v[0] * dt;
       belt.tex.offset.y += belt.v[2] * dt;
     }
+    for (const bm of this.blinkMeshes) {
+      const st = bm.b.state ?? 2;
+      bm.mesh.visible = st !== 0;
+      bm.mat.emissiveIntensity = st === 1 ? (Math.sin(performance.now() / 60) > 0 ? 0.9 : 0.1) : 0;
+    }
+    if (this.windTex) this.windTex.offset.y -= dt * 1.5;
+    for (const f of this.fanBlades) f.rotation.y += dt * 12;
     if (this.flag) this.flag.rotation.y = Math.sin(performance.now() / 600) * 0.3;
     // Schattenkamera folgt dem Spieler
     this.sun.position.set(focus[0] - 40, focus[1] + 60, focus[2] + 25);

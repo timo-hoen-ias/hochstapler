@@ -1,4 +1,4 @@
-import { buildLevel, SECTIONS, sectionAtHeight } from './level.js';
+import { buildLevel, sectionAtHeight } from './level.js';
 import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
@@ -61,7 +61,9 @@ class Game {
     this.jumpPressed = false;
     this.mouseBrace = false;
     this.best = 0;
-    this.startedAt = Date.now();
+    this.played = 0; // Schichtzeit aus früheren Sitzungen (ms)
+    this.startedAt = Date.now(); // Beginn der laufenden Sitzung
+    this.cp = 0; // erreichter Zwischenstopp des Teams
     this.finished = false;
     this.acc = 0;
     this.sendAcc = 0;
@@ -71,6 +73,10 @@ class Game {
 
     this.view.createAvatar('local', name, this.me.color);
     $('hud-room').textContent = `RAUM ${room}`;
+    // Offline-Fortschritt dieses Raums
+    const saved = Number(store.get('hochstapler.cp.' + room) || 0);
+    if (saved > 0 && saved < this.level.checkpoints.length) { this.cp = saved; this.respawn(false); }
+    this.view.setCheckpointReached(this.cp);
 
     this.net = new Net(room, name, {
       message: (m) => this.onMessage(m),
@@ -96,12 +102,17 @@ class Game {
         this.view.removeAvatar(old);
         if (av) this.view.createAvatar(this.me.id, this.me.name, this.me.color);
         this.startedAt = m.startedAt;
+        this.played = m.played || 0;
         this.board = m.board;
         for (const p of m.players) this.addRemote(p);
-        // Neben einem Mitspieler starten, damit das Seil nicht sofort reißt
+        this.setCheckpoint(m.cp || 0, false);
+        // Neben einem Mitspieler starten, sonst am Zwischenstopp des Teams
         const near = m.players.find((p) => p.s && p.s.p);
         if (near) this.body.pos = [near.s.p[0], near.s.p[1] + 0.5, near.s.p[2]];
+        else this.respawn(false);
         this.toast(m.players.length ? `Raum ${this.room}: ${m.players.length + 1} Lageristen am Seil` : `Raum ${this.room} geöffnet – lade Freunde ein!`);
+        if (this.cp > 0) this.toast(`Fortschritt geladen: ${this.cpLabel(this.cp)}`);
+        if (this.cp > (m.cp || 0)) this.net.send({ t: 'cp', i: this.cp });
         break;
       }
       case 'join':
@@ -130,8 +141,17 @@ class Game {
         this.board = m.board;
         this.showFinish(m.name, m.time);
         break;
+      case 'cp':
+        if (m.i > this.cp) { this.setCheckpoint(m.i, false); this.toast(`${m.name} hat ${this.cpLabel(m.i)} erreicht – gespeichert`); }
+        break;
+      case 'warp':
+        this.toast(`${m.name} holt das Team zum ${this.cpLabel(this.cp)}`);
+        this.respawn(false);
+        break;
       case 'restart':
         this.startedAt = m.startedAt;
+        this.played = 0;
+        this.setCheckpoint(0, false, true);
         this.respawn(true);
         $('finish').classList.add('hidden');
         this.finished = false;
@@ -199,9 +219,18 @@ class Game {
       e.stopPropagation();
       try { await navigator.clipboard.writeText(location.href); this.toast('Link kopiert'); } catch { this.toast(location.href); }
     };
+    $('warp').onclick = (e) => {
+      e.stopPropagation();
+      this.net.send({ t: 'warp' });
+      this.respawn(false);
+      this.toast(`Team zum ${this.cpLabel(this.cp)} geholt`);
+      this.lock();
+    };
     $('again').onclick = () => {
       this.net.send({ t: 'restart' });
-      this.startedAt = Date.now();
+      this.startedAt = Date.now() + (this.net.online ? this.net.offset : 0);
+      this.played = 0;
+      this.setCheckpoint(0, false, true);
       this.respawn(true);
       this.finished = false;
       $('finish').classList.add('hidden');
@@ -255,9 +284,16 @@ class Game {
     this.acc -= steps * step;
     if (this.acc > step) this.acc = 0;
 
-    // Herunterfallen ins Leere / Rand
+    // Zwischenstopp erreicht?
     const p = this.body.pos;
-    if (p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) this.respawn(false);
+    const g0 = this.body.ground;
+    if (this.body.grounded && g0 && g0.cp !== undefined && g0.cp > this.cp) this.setCheckpoint(g0.cp, true);
+    // Abgestürzt: deutlich unter den letzten Zwischenstopp gefallen oder aus der Welt
+    const cpY = this.level.checkpoints[this.cp].pos[1];
+    if (p[1] < cpY - 8 || p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) {
+      this.respawn(false);
+      this.toast(`Abgestürzt – zurück zum ${this.cpLabel(this.cp)}`);
+    }
 
     // Mitspieler glätten
     for (const r of this.remotes.values()) {
@@ -292,7 +328,7 @@ class Game {
     if (!this.finished && p[0] > g.min[0] && p[0] < g.max[0] && p[2] > g.min[2] && p[2] < g.max[2] && p[1] >= g.min[1] - 0.1 && p[1] < g.max[1]) {
       this.finished = true;
       if (this.net.online) this.net.send({ t: 'goal' });
-      else this.showFinish(this.name, Date.now() - this.startedAt);
+      else this.showFinish(this.name, this.shiftTime());
     }
 
     this.updateCamera(dt);
@@ -320,21 +356,36 @@ class Game {
     this.tension = tension;
   }
 
+  // Zurück zum Zwischenstopp des Teams (oder zum Start). Jeder Spieler bekommt
+  // seinen eigenen Platz auf der Plattform, damit niemand ineinander steht.
   respawn(toStart) {
-    // Neben dem nächsten Seilpartner wieder einsteigen, sonst am Tor
-    let pos = [...this.level.spawn];
-    if (!toStart) {
-      const chain = this.chain();
-      const idx = chain.findIndex((c) => c.local);
-      const n = chain[idx - 1] || chain[idx + 1];
-      const r = n && this.remotes.get(n.id);
-      if (r && r.grounded && r.rpos[1] > this.level.killY + 5) pos = [r.rpos[0], r.rpos[1] + 1, r.rpos[2]];
-    } else {
-      pos[0] += (this.me.slot || 0) * 1.2 - 1.8;
-    }
+    const cp = this.level.checkpoints[toStart ? 0 : this.cp];
+    const pos = [...cp.pos];
+    const slot = this.me.slot || 0;
+    const spread = cp.box ? Math.min(0.7, (cp.box.max[0] - cp.box.min[0]) / 2 - 0.4) : 1.8;
+    pos[0] += ((slot % 2) * 2 - 1) * spread * 0.8;
+    pos[2] += (slot < 2 ? -1 : 1) * spread * 0.6;
+    pos[1] += 0.2;
     this.body.pos = pos;
     this.body.vel = [0, 0, 0];
+    this.body.grounded = false;
     if (toStart) this.best = 0;
+  }
+
+  setCheckpoint(i, announce, force) {
+    if (!force && i <= this.cp) return;
+    this.cp = i;
+    store.set('hochstapler.cp.' + this.room, String(i));
+    this.view.setCheckpointReached(i);
+    if (announce) {
+      this.net.send({ t: 'cp', i });
+      this.toast(`${this.cpLabel(i)} erreicht – Fortschritt gespeichert`);
+    }
+  }
+
+  cpLabel(i) {
+    const c = this.level.checkpoints[i];
+    return i === 0 ? 'Start' : `Zwischenstopp ${i} (${c.label})`;
   }
 
   updateCamera(dt) {
@@ -355,7 +406,8 @@ class Game {
   }
 
   pointInSolid(q) {
-    for (const b of this.world.all) {
+    for (const b of this.world.near(q, 1, 1)) {
+      if (b.big || b.hidden) continue;
       if (q[0] > b.min[0] && q[0] < b.max[0] && q[1] > b.min[1] && q[1] < b.max[1] && q[2] > b.min[2] && q[2] < b.max[2]) return true;
     }
     return false;
@@ -364,13 +416,14 @@ class Game {
   updateHud() {
     const y = Math.max(0, this.body.pos[1]);
     this.best = Math.max(this.best, y);
-    const s = SECTIONS[sectionAtHeight(this.level, y)];
+    const si = sectionAtHeight(this.level, y);
+    const s = this.level.sections[si];
     $('hud-section').textContent = `${s.hall} · ${s.name}`;
     $('hud-height').textContent = `${y.toFixed(1)} m`;
     const top = this.level.goal.min[1];
     $('hud-best').textContent = `Rekord ${this.best.toFixed(1)} m · Ziel ${top.toFixed(0)} m`;
-    const t = Math.max(0, Date.now() + (this.net.online ? this.net.offset : 0) - this.startedAt);
-    $('hud-timer').textContent = `Schichtzeit ${fmt(t)}`;
+    $('hud-cp').textContent = `Zwischenstopp ${this.cp}/${this.level.checkpoints.length - 1} · Abschnitt ${si + 1}/${this.level.sections.length}`;
+    $('hud-timer').textContent = `Schichtzeit ${fmt(this.shiftTime())}`;
     if (this.view.scene.fog) this.view.scene.fog.color.setHex(s.fog);
 
     const rows = [{ name: this.name + ' (du)', color: this.me.color, y, slot: this.me.slot }];
@@ -389,11 +442,15 @@ class Game {
     setTimeout(() => d.remove(), 3300);
   }
 
+  shiftTime() {
+    return this.played + Math.max(0, Date.now() + (this.net.online ? this.net.offset : 0) - this.startedAt);
+  }
+
   showFinish(name, time) {
     this.finished = true;
     document.exitPointerLock?.();
     $('paused').classList.add('hidden');
-    $('finish-text').textContent = `${name} hat das Versanddach erreicht! Schichtzeit: ${fmt(time)}`;
+    $('finish-text').textContent = `${name} hat die Spitze des Hochlagers erreicht! Schichtzeit: ${fmt(time)}`;
     const board = this.board || [];
     $('board').innerHTML = board.length ? board.map((b) => `<li><b>${fmt(b.time)}</b> – ${esc(b.team)}</li>`).join('') : '';
     $('finish').classList.remove('hidden');
