@@ -105,6 +105,26 @@ Für schnelles Arbeiten am Client: `npx wrangler dev` in einem Terminal und
 `npm run dev` (Vite, leitet `/ws` an Port 8787 weiter) im zweiten.
 Ohne Server läuft das Spiel automatisch im Solo-Modus.
 
+Figuren-Animationen ansehen (ohne Spiel, mit `npm run dev`):
+`http://localhost:5173/anim-preview.html?s=kante` – weitere Szenen: `lauf`, `sprung`,
+`leiter`, `haken`, `seil`, `strom`.
+
+## Figuren-Animation
+
+`client/src/anim.js` animiert die Lageristen prozedural: ein kleines Gelenk-Skelett
+(Hüfte, Wirbelsäule, Kopf, Ober-/Unterarm, Ober-/Unterschenkel mit Stiefel), dessen
+Posen je Bewegungsart berechnet und weich überblendet werden – Stehen (Atmen,
+Gewicht verlagern), Gehen ↔ Rennen (Schrittlänge und Haltung nach Tempo), Absprung,
+Scheitel, Fallen (ab großer Höhe mit Rudern), weiche und harte Landung (Federung,
+bei hartem Aufprall Hand am Boden), Kante greifen und hängen, Hochziehen
+(Klimmzug → Knie auf die Kante → aufrichten; der Höhensprung der Physik wird optisch
+nachgezogen), Stufen ohne Ruckeln, Leiter, Kranhaken (Figur pendelt um die Hände),
+Seilruck (Oberkörper kippt weg, Arme greifen zum Seil; beim Festhalten dagegenlehnen)
+und Stromschlag (Zucken, Weste flackert). Die Physik bleibt unverändert.
+Übers Netz geht nur ein Zahlencode für die Bewegungsart (`a`), der Rest kommt aus
+Position und Geschwindigkeit. `scripts/test-anim.mjs` (Teil von `npm run validate`)
+prüft, dass kein Gelenk zwischen zwei Frames springt.
+
 ## Deploy auf Cloudflare
 
 Einmalig lokal:
@@ -128,6 +148,7 @@ client/            Three.js-Client (Vite)
   src/level.js     Akt 1 + Level-Generator, deterministisch für alle Clients
   src/physics.js   Kollision (Raumraster), Sprünge, Bänder, Eis, Lüfter, Federn, Seil
   src/render.js    Szene, prozedurale Texturen, Figuren, Seile
+  src/anim.js      Figuren-Skelett und prozedurale Animation
   src/net.js       WebSocket + Zeitabgleich (für synchrone Plattformen)
   src/main.js      Spielschleife, Eingabe, HUD
   src/audio/       Musik, Soundeffekte, Ambiente (alles prozedural, Web Audio)
