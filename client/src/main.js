@@ -5,7 +5,7 @@ import { Net } from './net.js';
 import { Input, EMOTES } from './input.js';
 import { Menu } from './menu.js';
 import { settings } from './settings.js';
-import { sfx, unlockAudio } from './audio.js';
+import { audio } from './audio/index.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -50,7 +50,7 @@ if (params.get('autostart')) setTimeout(() => start(false), 0);
 
 function start(solo) {
   if (game) return;
-  unlockAudio();
+  audio.unlock(); // Start ist eine Nutzergeste: jetzt darf Ton laufen
   const name = $('name').value.trim() || 'Lagerist';
   const room = ($('room').value.trim() || randomCode()).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
   store.set('hochstapler.name', name);
@@ -131,16 +131,21 @@ class Game {
       }
       case 'join':
         this.addRemote(m.player);
-        sfx.join();
         this.toast(`${m.player.name} hängt sich ans Seil`);
+        audio.play('join');
         break;
       case 'leave':
         this.removeRemote(m.id);
         this.toast(`${m.name} hat sich abgeseilt`);
+        audio.play('leave');
         break;
       case 's': {
         const r = this.remotes.get(m.id);
         if (!r) return;
+        // Sprung/Landung des Mitspielers hörbar machen
+        if (r.grounded && !m.g && m.v[1] > 3) audio.remoteJump(m.p);
+        if (!m.g) r.airVy = Math.min(r.airVy || 0, m.v[1]);
+        else if (!r.grounded) { audio.remoteLand(m.p, -(r.airVy || 0)); r.airVy = 0; }
         r.target = m.p; r.vel = m.v; r.yaw = m.y; r.grounded = m.g; r.braced = m.b;
         r.age = 0;
         if (!r.rpos) r.rpos = [...m.p];
@@ -149,7 +154,7 @@ class Game {
       }
       case 'emote': {
         const r = this.remotes.get(m.id);
-        if (r) { this.toast(`${r.name}: ${m.e}`); sfx.emote(); }
+        if (r) { this.toast(`${r.name}: ${m.e}`); audio.play('emote', { index: EMOTES.indexOf(m.e), pos: r.rpos }); }
         break;
       }
       case 'finish':
@@ -163,6 +168,7 @@ class Game {
         this.finished = false;
         this.input.setEnabled(!this.paused);
         this.toast(`${m.by} startet eine neue Schicht`);
+        audio.play('respawn');
         break;
       case 'full':
         this.toast('Raum ist voll (max. 4) – du spielst solo');
@@ -208,6 +214,11 @@ class Game {
     addEventListener('keydown', (e) => {
       // Ohne Pointer-Lock (z. B. Tastatur am Tablet) öffnet Esc die Pause
       if (e.key === 'Escape' && !document.pointerLockElement && !menu.isOpen()) this.pause();
+      if (e.code === 'KeyM' && !e.repeat && e.target.tagName !== 'INPUT') {
+        const muted = audio.toggleMute();
+        if (!muted) audio.play('mute');
+        this.toast(muted ? 'Ton aus (M)' : 'Ton an (M)');
+      }
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === canvas;
@@ -217,6 +228,7 @@ class Game {
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.pause(); });
     $('again').onclick = () => {
+      audio.play('ui');
       this.net.send({ t: 'restart' });
       this.startedAt = Date.now();
       this.respawn(true);
@@ -225,7 +237,7 @@ class Game {
       this.input.setEnabled(true);
       this.lock();
     };
-    $('stay').onclick = () => { $('finish').classList.add('hidden'); this.input.setEnabled(true); this.lock(); };
+    $('stay').onclick = () => { audio.play('uiBack'); $('finish').classList.add('hidden'); this.input.setEnabled(true); this.lock(); };
     settings.onChange((s, patch) => { if ('hints' in patch) this.updateClickHint(); });
     this.updateClickHint();
   }
@@ -235,7 +247,7 @@ class Game {
     if (!e || this.paused) return;
     this.net.send({ t: 'emote', e });
     this.toast(`Du: ${e}`);
-    sfx.emote();
+    audio.play('emote', { index: i });
   }
 
   pause() {
@@ -294,7 +306,6 @@ class Game {
     let z = -cy * fx - sy * rx;
     const l = Math.hypot(x, z);
     if (l > 1) { x /= l; z /= l; }
-    if (i.jump && this.body.grounded) sfx.jump();
     return { x, z, jump: i.jump, brace: i.brace };
   }
 
@@ -313,9 +324,13 @@ class Game {
     let first = true;
     const tNow = this.net.time();
     const steps = Math.min(12, Math.floor(this.acc / step));
+    const ev = { jumped: false, landed: false, landSpeed: 0 };
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
+      const vyBefore = this.body.vel[1];
       stepBody(this.body, first ? input : { ...input, jump: false }, this.world, step);
+      if (this.body.jumped) ev.jumped = true;
+      if (this.body.justLanded) { ev.landed = true; ev.landSpeed = Math.max(ev.landSpeed, -vyBefore); }
       first = false;
       this.ropeStep(step);
     }
@@ -325,15 +340,14 @@ class Game {
     // Landung: Geräusch + leichtes Kamerawackeln bei harten Aufprallen
     if (!wasGrounded && this.body.grounded && fallSpeed > 6) {
       const k = Math.min(1, (fallSpeed - 6) / 18);
-      sfx.land(0.5 + k);
       this.view.shake = Math.max(this.view.shake, k);
     }
-    if (this.tension > 1.02 && !(this.lastTension > 1.02)) { sfx.tension(); this.view.shake = Math.max(this.view.shake, 0.25); }
+    if (this.tension > 1.02 && !(this.lastTension > 1.02)) { this.view.shake = Math.max(this.view.shake, 0.25); }
     this.lastTension = this.tension;
 
     // Herunterfallen ins Leere / Rand
     const p = this.body.pos;
-    if (p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) this.respawn(false);
+    if (p[1] < this.level.killY || Math.abs(p[0]) > 75 || Math.abs(p[2]) > 75) { this.respawn(false); audio.play('respawn'); ev.landed = false; }
 
     // Mitspieler glätten
     for (const r of this.remotes.values()) {
@@ -372,6 +386,12 @@ class Game {
     }
 
     this.updateCamera(dt);
+    const cp = this.view.camera.position;
+    audio.update({
+      dt, time: tNow, world: this.world, body: this.body, tension: this.tension, ...ev,
+      camPos: [cp.x, cp.y, cp.z], camYaw: this.camYaw,
+      section: sectionAtHeight(this.level, Math.max(0, p[1])),
+    });
     this.hudAcc += dt;
     if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
     this.view.update(dt, this.world, p);
@@ -467,7 +487,7 @@ class Game {
 
   showFinish(name, time) {
     this.finished = true;
-    sfx.goal();
+    audio.play('finish');
     this.input.setEnabled(false);
     if (this.paused) { this.paused = false; menu.close(); }
     document.exitPointerLock?.();

@@ -1,7 +1,11 @@
 // Hauptmenü, Pausenmenü, Optionen und Steuerungsübersicht.
 // Bedienbar mit Maus, Touch, Tastatur (Tab/Enter) und Controller (Steuerkreuz/Stick + A/B).
 import { settings, QUALITY } from './settings.js';
-import { sfx } from './audio.js';
+import { audio } from './audio/index.js';
+
+const sfx = { click: () => audio.play('ui'), back: () => audio.play('uiBack'), move: () => audio.play('uiHover') };
+// Lautstärke-Regler schreiben direkt in die Audio-Engine (eigene Speicherung)
+const vol = (bus, label) => ({ key: 'vol_' + bus, label, type: 'range', min: 0, max: 1, step: 0.1, audio: bus, fmt: (v) => (v ? `${Math.round(v * 100)} %` : 'Aus') });
 
 const OPTIONS = [
   { key: 'quality', label: 'Grafikqualität', type: 'choice', choices: Object.entries(QUALITY).map(([v, q]) => [v, q.label]),
@@ -13,7 +17,11 @@ const OPTIONS = [
   { key: 'touch', label: 'Touch-Steuerung', type: 'choice', choices: [['auto', 'Automatisch'], ['on', 'An'], ['off', 'Aus']] },
   { key: 'hints', label: 'Tastenhinweise einblenden', type: 'toggle' },
   { key: 'shake', label: 'Kamerawackeln', type: 'toggle' },
-  { key: 'volume', label: 'Lautstärke', type: 'range', min: 0, max: 1, step: 0.1, fmt: (v) => (v ? `${Math.round(v * 100)} %` : 'Aus') },
+  { key: 'muted', label: 'Ton (Taste M)', type: 'audioMute' },
+  vol('master', 'Gesamtlautstärke'),
+  vol('music', 'Musik'),
+  vol('sfx', 'Effekte'),
+  vol('ambience', 'Hallengeräusche'),
 ];
 
 export class Menu {
@@ -29,6 +37,7 @@ export class Menu {
       if (e.key === 'Escape' && this.stack.length > 1) { e.preventDefault(); this.back(); }
     });
     settings.onChange(() => this.refreshOptions());
+    audio.onChange(() => this.refreshOptions());
     requestAnimationFrame(() => this.padLoop());
   }
 
@@ -44,7 +53,7 @@ export class Menu {
   close() { this.root.classList.add('hidden'); }
 
   back() {
-    if (this.stack.length > 1) { this.stack.pop(); this.render(); sfx.click(); return; }
+    if (this.stack.length > 1) { this.stack.pop(); this.render(); sfx.back(); return; }
     if (this.current() === 'pause') this.h.resume?.();
   }
 
@@ -60,11 +69,12 @@ export class Menu {
   onClick(e) {
     const el = e.target.closest('button');
     if (!el || !this.root.contains(el)) return;
-    sfx.click();
+    audio.unlock();
+    if (el.dataset.act !== 'back') sfx.click();
     if (el.dataset.go) { this.show(el.dataset.go); return; }
     const act = el.dataset.act;
     if (act === 'back') this.back();
-    else if (act === 'reset') settings.reset();
+    else if (act === 'reset') { settings.reset(); audio.resetSettings(); }
     else if (act && this.h[act]) this.h[act]();
   }
 
@@ -87,7 +97,7 @@ export class Menu {
         const input = document.createElement('input');
         input.type = 'range'; input.min = o.min; input.max = o.max; input.step = o.step;
         const val = document.createElement('output');
-        input.addEventListener('input', () => settings.set({ [o.key]: Number(input.value) }));
+        input.addEventListener('input', () => this.setValue(o, Number(input.value)));
         ctl.append(input, val);
         ctl._input = input; ctl._val = val;
         input.dataset.opt = o.key;
@@ -110,31 +120,42 @@ export class Menu {
     this.refreshOptions();
   }
 
+  value(o) {
+    if (o.audio) return audio.getVolume(o.audio);
+    if (o.type === 'audioMute') return !audio.muted;
+    return settings.get()[o.key];
+  }
+
+  setValue(o, v) {
+    if (o.audio) { audio.unlock(); audio.setVolume(o.audio, v); } else settings.set({ [o.key]: v });
+  }
+
   cycle(o, dir) {
     const s = settings.get();
+    if (o.type === 'audioMute') { audio.unlock(); audio.toggleMute(); return; }
     if (o.type === 'toggle') settings.set({ [o.key]: !s[o.key] });
     else if (o.type === 'choice') {
       const i = o.choices.findIndex(([v]) => v === s[o.key]);
       const n = o.choices[(i + dir + o.choices.length) % o.choices.length][0];
       settings.set({ [o.key]: n });
     } else if (o.type === 'range') {
-      const v = Math.min(o.max, Math.max(o.min, Math.round((s[o.key] + dir * o.step) / o.step) * o.step));
-      settings.set({ [o.key]: Number(v.toFixed(3)) });
+      const v = Math.min(o.max, Math.max(o.min, Math.round((this.value(o) + dir * o.step) / o.step) * o.step));
+      this.setValue(o, Number(v.toFixed(3)));
     }
   }
 
   refreshOptions() {
-    const s = settings.get();
     for (const { o, ctl } of this.optEls) {
+      const v = this.value(o);
       if (o.type === 'range') {
-        ctl._input.value = s[o.key];
-        ctl._val.textContent = o.fmt(s[o.key]);
-      } else if (o.type === 'toggle') {
-        ctl.textContent = s[o.key] ? 'An' : 'Aus';
-        ctl.classList.toggle('on', !!s[o.key]);
+        ctl._input.value = v;
+        ctl._val.textContent = o.fmt(v);
+      } else if (o.type === 'toggle' || o.type === 'audioMute') {
+        ctl.textContent = v ? 'An' : 'Aus';
+        ctl.classList.toggle('on', !!v);
       } else {
-        const c = o.choices.find(([v]) => v === s[o.key]);
-        ctl.textContent = `◀ ${c ? c[1] : s[o.key]} ▶`;
+        const c = o.choices.find(([x]) => x === v);
+        ctl.textContent = `◀ ${c ? c[1] : v} ▶`;
       }
     }
   }
@@ -160,7 +181,7 @@ export class Menu {
     i = i < 0 ? 0 : (i + dir + list.length) % list.length;
     list[i].focus();
     list[i].scrollIntoView({ block: 'nearest' });
-    sfx.click();
+    sfx.move();
   }
 
   adjust(dir) {
@@ -196,6 +217,7 @@ export class Menu {
         if (dir) this.moveFocus(dir); else this.adjust(hdir);
       }
       this.pad.axisHeld = held;
+      if (gp.buttons.some((b) => b.pressed)) { audio.unlock(); document.body.dataset.device = 'pad'; }
       if (pressed(0)) {
         const el = document.activeElement;
         if (el && scope.contains(el) && el.tagName === 'BUTTON') el.click();

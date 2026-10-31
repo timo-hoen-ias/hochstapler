@@ -16,7 +16,7 @@ export class Input {
     this.mouseBrace = false;
     this.lookX = 0; this.lookY = 0; this.zoom = 0;
     this.jumpQueued = false;
-    this.device = 'kbm'; // kbm | pad | touch
+    this.device = document.body.dataset.device || 'kbm'; // kbm | pad | touch
     this.pad = { prev: [], index: -1 };
     this.touch = { move: null, look: null, jump: false, brace: false, braceToggle: false };
     this.bindKeyboardMouse();
@@ -51,7 +51,7 @@ export class Input {
     addEventListener('mouseup', (e) => { if (e.button === 2) this.mouseBrace = false; });
     addEventListener('mousemove', (e) => {
       if (document.pointerLockElement !== this.canvas || !this.enabled) return;
-      this.setDevice('kbm');
+      if (Math.abs(e.movementX) + Math.abs(e.movementY) > 2) this.setDevice('kbm');
       const s = 0.0025 * settings.get().sensitivity;
       this.lookX -= e.movementX * s;
       this.lookY += e.movementY * s * (settings.get().invertY ? -1 : 1);

@@ -18,7 +18,6 @@ export const DEFAULTS = {
   touch: 'auto', // auto | on | off
   hints: true, // Tasten-/Button-Hinweise im HUD
   shake: true, // Kamera-Effekte
-  volume: 0.6,
 };
 
 let current = load();

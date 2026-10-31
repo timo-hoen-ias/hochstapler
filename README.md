@@ -10,13 +10,25 @@ Gebaut mit **Three.js** (Client), **Cloudflare Workers** (Auslieferung) und
 
 ## Steuerung
 
-| Taste | Aktion |
-| --- | --- |
-| W A S D / Pfeile | laufen |
-| Leertaste | springen |
-| Shift oder rechte Maustaste | festhalten (macht dich zum Anker, nur am Boden) |
-| Maus / Mausrad | Kamera / Zoom |
-| 1 · 2 · 3 | Zurufe: „Warte!“, „Los, springen!“, „Festhalten!“ |
+Tastatur/Maus, Controller (Gamepad-API, Xbox-/PlayStation-Layout) und Touch werden
+gleichzeitig unterstützt; das HUD zeigt Hinweise für das zuletzt benutzte Gerät.
+
+| Aktion | Tastatur & Maus | Controller | Touch |
+| --- | --- | --- | --- |
+| laufen | W A S D / Pfeile | linker Stick | Joystick (linke Bildhälfte) |
+| Kamera | Maus, Q/E/R/F | rechter Stick | wischen (rechte Bildhälfte) |
+| springen | Leertaste | A / ✕ | ⤒ |
+| festhalten (Anker, nur am Boden) | Shift / rechte Maustaste | B, RB oder RT | ✊ halten |
+| Zurufe | 1 · 2 · 3 | X · Y · LB | Buttons |
+| Zoom | Mausrad | Steuerkreuz ↑↓ | ＋ / − |
+| Pause | Esc | Start | ❚❚ |
+| Ton an/aus | M | – | Optionen |
+
+Menüs lassen sich komplett mit dem Controller bedienen (Steuerkreuz/Stick, A bestätigt,
+B zurück, ←/→ ändert Werte). Im **Optionsmenü**: Grafikqualität (Niedrig/Mittel/Hoch),
+Sichtfeld, Empfindlichkeit für Maus/Touch und Controller, Y-Achse invertieren,
+Touch-Steuerung (automatisch/an/aus), Tastenhinweise, Kamerawackeln und Lautstärken.
+Einstellungen werden im Browser gespeichert.
 
 ## Die sechs Abschnitte
 
@@ -72,6 +84,7 @@ client/            Three.js-Client (Vite)
   src/render.js    Szene, prozedurale Texturen, Figuren, Seile
   src/net.js       WebSocket + Zeitabgleich (für synchrone Plattformen)
   src/main.js      Spielschleife, Eingabe, HUD
+  src/audio/       Musik, Soundeffekte, Ambiente (alles prozedural, Web Audio)
 src/worker.js      Worker + Durable Object "Room"
 scripts/           Level-Validierung und Physik-Simulation
 ```
@@ -80,3 +93,34 @@ Netzwerkmodell: Jeder Client simuliert seine eigene Figur und schickt 20×/s
 seinen Zustand. Der Raum verteilt ihn an alle anderen und führt Schichtzeit
 und Bestenliste. Bewegliche Plattformen hängen nur von der Serverzeit ab und
 sind dadurch auf allen Rechnern synchron.
+
+## Audio
+
+Alle Klänge entstehen zur Laufzeit mit der Web Audio API – es gibt keine
+Audiodateien und damit keine Lizenzfragen.
+
+- **Musik** (`audio/music.js`): generativer Sequenzer, je Abschnitt eigenes
+  Tempo, eigene Tonart, Akkordfolge und Instrumentierung. Gewechselt wird am
+  Taktanfang; das Versanddach ist das schnellste Thema.
+- **Ambiente** (`audio/ambience.js`): Klangteppich je Abschnitt (Hallenlüftung,
+  Maschinenbrummen, Wasser, Wind) plus zufällige, räumlich verteilte Ereignisse
+  (Durchsage-Gong, Rückfahrwarner, Regalknarzen, Möwen, Schiffshorn …).
+- **Maschinen** (`audio/machines.js`): Förderbänder, Stapler-Gabeln, fahrende
+  Stapler und Kräne klingen dort, wo sie stehen, und reagieren auf ihre
+  Bewegung (Anfahren, Hydraulik, Rückfahrwarner, Anschlag).
+- **Effekte** (`audio/sfx.js`): Sprung, Landung und Schritte je Material,
+  Seil-Knarzen bei Spannung, „Twang“ wenn das Seil straff wird, Fallwind,
+  Zurufe, Mitspieler kommen/gehen, Abschnitts-Gong, Zielfanfare, UI-Klicks.
+
+API fürs Optionsmenü (`import { audio } from './audio/index.js'`):
+
+```js
+audio.setVolume('master' | 'music' | 'sfx' | 'ambience', 0..1);
+audio.getVolume('music');
+audio.setMuted(true); audio.toggleMute(); audio.muted;
+audio.onChange((settings) => { /* Regler aktualisieren */ });
+audio.play('ui');      // auch 'uiBack', 'uiHover'
+audio.unlock();        // aus einer Nutzergeste aufrufen (Klick/Taste)
+```
+
+Einstellungen werden in `localStorage` (`hochstapler.audio`) gespeichert.
