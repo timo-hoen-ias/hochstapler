@@ -27,7 +27,7 @@ export function readPad(gp, prev, dt, enabled) {
   const b = (i) => !!gp.buttons[i]?.pressed;
   const v = (i) => gp.buttons[i]?.value || 0;
   const pressed = (i) => b(i) && !prev[i];
-  const out = { fx: 0, rx: 0, lookX: 0, lookY: 0, zoom: 0, jump: false, brace: false, emote: -1, pause: pressed(9), any: false };
+  const out = { fx: 0, rx: 0, lookX: 0, lookY: 0, zoom: 0, jump: false, brace: false, emote: -1, pause: pressed(9), reset: pressed(8), any: false };
   const lx = deadzone(gp.axes[0] || 0), ly = deadzone(gp.axes[1] || 0);
   const rxs = deadzone(gp.axes[2] || 0), rys = deadzone(gp.axes[3] || 0);
   out.any = !!(lx || ly || rxs || rys || gp.buttons.some((x) => x.pressed));
@@ -73,6 +73,7 @@ export class PadInput {
     const r = readPad(gp, this.prev, dt, this.enabled);
     this.prev = gp.buttons.map((x) => x.pressed);
     if (r.pause) this.h.pause?.();
+    if (r.reset && this.enabled) this.h.reset?.();
     if (r.emote >= 0) this.h.emote?.(r.emote);
     const len = Math.hypot(r.fx, r.rx);
     out.forward = len > 1 ? r.fx / len : r.fx;
@@ -121,6 +122,7 @@ export class Input {
       this.setDevice('kbm');
       if (!this.enabled) return;
       if (e.code === 'Space') { if (!this.keys.has('Space')) this.jumpQueued = true; e.preventDefault(); }
+      if ((e.code === 'Backspace' || e.code === 'KeyT') && !e.repeat && this.enabled && e.target.tagName !== 'INPUT') { e.preventDefault(); this.h.reset?.(); }
       this.keys.add(e.code);
       const em = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code];
       if (em !== undefined && !e.repeat) this.h.emote?.(em);
@@ -242,6 +244,8 @@ export class Input {
     const emoteBtns = root.querySelectorAll('[data-emote]');
     emoteBtns.forEach((b) => hold(b, () => this.h.emote?.(Number(b.dataset.emote))));
     hold(root.querySelector('[data-act=pause]'), () => this.h.pause?.());
+    const rb = root.querySelector('[data-act=reset]');
+    if (rb) hold(rb, () => { if (this.enabled) this.h.reset?.(); });
     hold(root.querySelector('[data-act=zoomin]'), () => { this.zoom -= 1.6; });
     hold(root.querySelector('[data-act=zoomout]'), () => { this.zoom += 1.6; });
 
@@ -295,6 +299,7 @@ export class Input {
       const r = readPad(gp, this.pad.prev, dt, this.enabled);
       if (r.any) this.setDevice('pad');
       if (r.pause) this.h.pause?.();
+      if (r.reset && this.enabled) this.h.reset?.();
       if (this.enabled) {
         rx += r.rx; fx += r.fx;
         this.lookX += r.lookX; this.lookY += r.lookY; this.zoom += r.zoom;
