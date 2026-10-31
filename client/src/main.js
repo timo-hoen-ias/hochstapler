@@ -991,6 +991,7 @@ class Game {
       b.grounded = false;
       releaseGrips(b);
       g.safe = { spot: { ...spot }, calm: 0 };
+      g.dead = 0; // wer gerade aufgeklatscht ist, kommt direkt mit
     });
   }
 
