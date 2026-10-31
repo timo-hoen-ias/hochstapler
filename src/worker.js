@@ -33,6 +33,19 @@ export class Room extends DurableObject {
     super(ctx, env);
     // Letzter bekannter Zustand je Spieler-ID (nur im Speicher, wird bei Bedarf neu gefüllt).
     this.lastState = new Map();
+    // Rätsel-Maschinen: Besetzer je Platz ("m:st" → Spieler-ID) und letzter Zustand je Maschine
+    this.machOcc = new Map();
+    this.machState = new Map();
+  }
+
+  machSnapshot() {
+    const occ = {}, st = {};
+    for (const [key, id] of this.machOcc) {
+      const [m, s] = key.split(':').map(Number);
+      (occ[m] ||= [])[s] = id;
+    }
+    for (const [m, s] of this.machState) st[m] = s;
+    return { occ, st };
   }
 
   async fetch(request) {
@@ -109,6 +122,7 @@ export class Room extends DurableObject {
         const played = (await this.ctx.storage.get('played')) || 0;
         const cp = (await this.ctx.storage.get('cp')) || 0;
         const board = (await this.ctx.storage.get('board')) || [];
+        const flags = (await this.ctx.storage.get('flags')) || [];
 
         this.send(ws, {
           t: 'welcome',
@@ -121,6 +135,8 @@ export class Room extends DurableObject {
           mode: ms.mode,
           tcp: ms.tcp,
           race: ms.race,
+          mach: this.machSnapshot(),
+          flags,
           players: others.map((p) => ({ ...this.publicPlayer(p), s: this.lastState.get(p.id) || null })),
         });
         this.broadcast({ t: 'join', player: info }, ws);
@@ -131,6 +147,60 @@ export class Room extends DurableObject {
         const s = { p: m.p, v: m.v, y: m.y, g: m.g, b: m.b, a: typeof m.a === 'number' ? m.a & 127 : undefined };
         this.lastState.set(me.id, s);
         this.broadcast({ t: 's', id: me.id, ...s }, ws);
+        return;
+      }
+      // ───── Rätsel-Maschinen ─────
+      case 'mc': { // Platz besetzen: nur wenn frei (oder der Besetzer weg ist)
+        if (!me.id) return;
+        const mi = Math.floor(Number(m.m)), si = Math.floor(Number(m.st));
+        if (!(mi >= 0 && mi < 64 && si >= 0 && si < 4)) return;
+        const key = mi + ':' + si;
+        const cur = this.machOcc.get(key);
+        const alive = cur && this.players().some((p) => p.id === cur);
+        if (alive && cur !== me.id) return;
+        // wer woanders saß, verliert den alten Platz
+        for (const [k2, id] of this.machOcc) if (id === me.id && k2 !== key) {
+          this.machOcc.delete(k2);
+          const [m2, s2] = k2.split(':').map(Number);
+          this.broadcast({ t: 'mo', m: m2, st: s2, id: null });
+        }
+        this.machOcc.set(key, me.id);
+        this.broadcast({ t: 'mo', m: mi, st: si, id: me.id });
+        return;
+      }
+      case 'mr': {
+        if (!me.id) return;
+        const key = Math.floor(Number(m.m)) + ':' + Math.floor(Number(m.st));
+        if (this.machOcc.get(key) !== me.id) return;
+        this.machOcc.delete(key);
+        const [mi, si] = key.split(':').map(Number);
+        this.broadcast({ t: 'mo', m: mi, st: si, id: null });
+        return;
+      }
+      case 'ms': { // Zustand von der rechnenden Seite
+        if (!me.id || !Array.isArray(m.s) || m.s.length > 8 || !m.s.every((v) => Number.isFinite(v) && Math.abs(v) < 1e5)) return;
+        const mi = Math.floor(Number(m.m));
+        if (!(mi >= 0 && mi < 64)) return;
+        this.machState.set(mi, m.s);
+        this.broadcast({ t: 'ms', m: mi, s: m.s }, ws);
+        return;
+      }
+      case 'mi': { // Eingabe eines Bedieners an die rechnende Seite
+        if (!me.id || !m.i || typeof m.i !== 'object') return;
+        const mi = Math.floor(Number(m.m)), si = Math.floor(Number(m.st));
+        if (this.machOcc.get(mi + ':' + si) !== me.id) return;
+        const n = (v) => (Number.isFinite(v) ? Math.max(-1, Math.min(1, v)) : 0);
+        const i = { x: n(m.i.x), z: n(m.i.z), fx: n(m.i.fx), rx: n(m.i.rx), up: !!m.i.up, down: !!m.i.down, j: Math.max(0, Math.floor(Number(m.i.j) || 0)) };
+        this.broadcast({ t: 'mi', m: mi, st: si, i }, ws);
+        return;
+      }
+      case 'fl': { // Hebel: Notleiter ablassen (bleibt bis zum Neustart)
+        if (!me.id) return;
+        const f = String(m.f || '').slice(0, 40);
+        if (!f) return;
+        const flags = (await this.ctx.storage.get('flags')) || [];
+        if (!flags.includes(f) && flags.length < 64) { flags.push(f); await this.ctx.storage.put('flags', flags); }
+        this.broadcast({ t: 'fl', f, name: me.name }, ws);
         return;
       }
       case 'ping':
@@ -205,12 +275,14 @@ export class Room extends DurableObject {
         if (ms.mode === 'teams') {
           // Revanche: beide Teams wieder unten, neue Rennuhr
           const race = { startedAt: Date.now(), winner: null };
-          await this.ctx.storage.put({ tcp: [0, 0], race });
+          await this.ctx.storage.put({ tcp: [0, 0], race, flags: [] });
+          this.machOcc.clear(); this.machState.clear();
           this.broadcast({ t: 'restart', by: me.name, startedAt: race.startedAt, race });
           return;
         }
         const startedAt = Date.now();
-        await this.ctx.storage.put({ startedAt, played: 0, cp: 0 });
+        await this.ctx.storage.put({ startedAt, played: 0, cp: 0, flags: [] });
+        this.machOcc.clear(); this.machState.clear();
         this.broadcast({ t: 'restart', by: me.name, startedAt });
         return;
       }
@@ -258,6 +330,7 @@ export class Room extends DurableObject {
     if (!a || !a.id) return;
     ws.serializeAttachment({ id: null });
     this.lastState.delete(a.id);
+    for (const [key, id] of this.machOcc) if (id === a.id) this.machOcc.delete(key);
     this.broadcast({ t: 'leave', id: a.id, name: a.name }, ws);
     // Letzter Spieler raus: gespielte Zeit sichern, Uhr anhalten
     if (!this.players().length) {

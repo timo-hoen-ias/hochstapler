@@ -8,6 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeTextures, textCanvas } from './textures.js';
 import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
+import { MachineView } from './machines3d.js';
 import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 import { Rig } from './anim.js';
 import { Splats } from './splat.js';
@@ -94,6 +95,9 @@ export class Renderer {
     // Mobile-Browser melden die neue Größe nach Drehung teils verspätet
     window.addEventListener('orientationchange', () => setTimeout(() => this.resize(), 250));
   }
+
+  // Rätsel-Maschinen (Gabelstapler, Kräne, Aufzüge, Draisinen, Hebel)
+  setMachines(mc) { this.machines = new MachineView(this.scene, mc, this.mm); }
 
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
@@ -796,6 +800,7 @@ export class Renderer {
     updateHooks(this.hookLive, this.locals);
     this.splats.update(dt);
     updatePuzzles(this.puzzles, dt);
+    this.machines?.update(dt);
     for (const w of this.windFx) {
       const f = colliders.gust(w.z);
       w.mat.opacity = 0.08 + 0.4 * f;

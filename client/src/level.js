@@ -5,6 +5,7 @@
 
 import { buildAct1 } from './act1.js';
 import { buildActs } from './acts.js';
+import { buildArena, ARENA_OF } from './arenas.js';
 
 // Abschnitte von Akt 1 (handgebaut)
 const HANDMADE = [
@@ -19,7 +20,7 @@ const HANDMADE = [
 export const GENERATED_SECTIONS = 42;
 // Akt 1 zieht weit nach links hinaus – der Start liegt deshalb rechts im Hof
 const START_X = 22;
-const SEED = 0x5eed1e;
+const SEED = 0x5eed24; // Zufallsfolge der Akte 2–7 (nach Einbau der Rätsel-Arenen neu gewählt, damit alle Übergänge schaffbar sind)
 const DEBUG = typeof process !== 'undefined' && process.env && process.env.LVLDEBUG;
 
 // Bewegungsprofil: halten – fahren – halten – zurückfahren.
@@ -83,6 +84,8 @@ export function buildLevel(opts = {}) {
   const extinguishers = []; // Feuerlöscher-Schränke
   const sections = [];
   const checkpoints = [];
+  const machines = []; // Rätsel-Plattformen: Gabelstapler, Kräne, Aufzüge, Draisinen
+  const levers = []; // Hebel (z. B. Notleiter ablassen)
 
   let sec = 0;
   let fwd = [0, -1];
@@ -467,7 +470,7 @@ export function buildLevel(opts = {}) {
   const inBounds = (b) => b.min[0] > -BOUND && b.max[0] < BOUND && b.min[2] > -BOUND && b.max[2] < BOUND;
   // Zustand sichern / zurücksetzen, damit ein Set-Piece, das nicht passt, spurlos verschwindet
   const corridors = []; // Sprungräume zwischen Kletterpunkten, die frei bleiben müssen
-  const lists = { corridors, statics, movers, decor, signs, zones, path, hooks, ladders, props, hazards, plates, solids, clears, supported, checkpoints, waters, extinguishers };
+  const lists = { corridors, statics, movers, decor, signs, zones, path, hooks, ladders, props, hazards, plates, solids, clears, supported, checkpoints, waters, extinguishers, machines, levers };
   function snapshot() {
     const s = { prev, fwd, containerColor };
     for (const [k, v] of Object.entries(lists)) s[k] = v.length;
@@ -503,6 +506,7 @@ export function buildLevel(opts = {}) {
       if (!inBounds(n)) { pieceWhy = 'R3'; return false; }
       for (const o of all) {
         if (o === n) continue;
+        if (n.arena && n.arena === o.arena) continue; // innerhalb einer Rätsel-Arena
         if (o.max[1] < n.min[1] - 3.2 || o.min[1] > n.max[1] + 3.2) continue;
         const sweepN = !n.mat, sweepO = !o.mat; // Fahrwege beweglicher Teile
         if (inter(n, o) && !(n.basin && o.mat === 'drum') && !(o.basin && n.mat === 'drum')) { pieceWhy = 'R4'; return false; }
@@ -540,10 +544,12 @@ export function buildLevel(opts = {}) {
       for (const o of all) if (inter(z, o)) { pieceWhy = 'R11'; return false; }
     }
     // Sprungkorridore: neue Übergänge gegen alle Teile, alte Übergänge gegen neue Teile
-    const skip = (o, c) => !o.mat || o.gate || o.basin || o === c.a || o === c.b;
+    const skip = (o, c) => !o.mat || o.gate || o.basin || o === c.a || o === c.b || (c.arena && o.arena === c.arena);
     const fresh = [];
     for (let i = Math.max(1, s.path); i < path.length; i++) {
       const A = path[i - 1], B = path[i];
+      // Wege innerhalb einer Arena (Maschine, Räuberleiter) hält die Arena selbst frei
+      if (B.arena && A.box.arena === B.arena) continue;
       if (A.kind === 'swim' || B.kind === 'swim') continue; // Schwimmstrecken prüft die Simulation
       const ta = A.box.max[1], tb = B.box.ramp ? B.box.ramp.near : B.box.max[1];
       let hi = Math.max(ta, tb) + 3.3;
@@ -557,7 +563,7 @@ export function buildLevel(opts = {}) {
         if (up > lo) { mn[ax] = lo - 0.3; mx[ax] = up + 0.3; }
         else { mn[ax] = up - 0.6; mx[ax] = lo + 0.6; }
       }
-      fresh.push({ min: mn, max: mx, a: A.box, b: B.box });
+      fresh.push({ min: mn, max: mx, a: A.box, b: B.box, arena: B.arena });
     }
     for (const h of hooks.slice(s.hooks)) fresh.push({ ...hookRoom(h), a: null, b: null });
     for (const c of fresh) for (const o of all) if (!skip(o, c) && inter(c, o)) { pieceWhy = 'R12'; return false; }
@@ -568,7 +574,7 @@ export function buildLevel(opts = {}) {
     const anchor = s.prev;
     for (const e of extras) {
       if (!inBounds(e)) { pieceWhy = 'R14'; return false; }
-      for (const o of olds) if (o !== anchor && o.max[1] > e.min[1] - 0.5 && o.min[1] < e.max[1] && inter(e, o)) { pieceWhy = 'R15'; return false; }
+      for (const o of olds) if (o !== anchor && !(e.arena && o.arena === e.arena) && o.max[1] > e.min[1] - 0.5 && o.min[1] < e.max[1] && inter(e, o)) { pieceWhy = 'R15'; return false; }
     }
     return true;
   }
@@ -586,17 +592,61 @@ export function buildLevel(opts = {}) {
     clears.push(zone);
     return zone;
   }
+  // ───── Rätsel-Arenen (arenas.js): große Plattformen mit Maschinen ─────
+  function addMachine(def) { def.id = machines.length; def.sec = sec; machines.push(def); return def; }
+  function addLever(l) { l.id = levers.length; l.sec = sec; levers.push(l); return l; }
+  function addLadder(min, max, face, o = {}) { const l = { min, max, face, sec, ...o }; ladders.push(l); return l; }
+  function reserve(b, arena) { corridors.push({ min: b.min, max: b.max, a: null, b: null, arena }); }
+  const arenaKit = {
+    solid, addPath, sign, hazard, wind, prop, deco, setPrev, pieceOk, snapshot, rollback, face,
+    machine: addMachine, lever: addLever, ladder: addLadder, reserve,
+    get prev() { return prev; }, get fwd() { return fwd; }, get sec() { return sec; },
+  };
+  let arenaId = 0;
+  // Arena an prev anbauen: Richtungen, Spiegelung und seitlichen Versatz probieren.
+  // Passt sie hier nicht, bleibt sie in der Warteschlange und kommt nach dem nächsten Stück dran.
+  function placeArena(kind, T) {
+    const dirs = [[0, -1], [-1, 0], [0, 1], [1, 0]];
+    for (const shift of [0, 4, -4]) for (const mir of [false, true]) for (const d of dirs) {
+      const snap = snapshot();
+      face(null, d);
+      const id = 'arena' + (++arenaId);
+      try {
+        buildArena(arenaKit, kind, T, id, mir, shift);
+        if (pieceOk(snap)) return true;
+      } catch (e) { if (DEBUG) console.log('Arena', kind, e.message); }
+      if (DEBUG) console.log('Arena passt nicht', kind, d, shift, pieceWhy);
+      rollback(snap);
+    }
+    return false;
+  }
+  const arenaQueue = [];
+  function queueArena(T) { arenaQueue.push(T); }
+  function tryArenas() {
+    while (arenaQueue.length) {
+      const T = arenaQueue[0];
+      if (!placeArena(ARENA_OF[T.key], T)) return false;
+      arenaQueue.shift();
+    }
+    return true;
+  }
+  // Akt 1 endet mit dem Staplerhof (sonst gleich zu Beginn von Akt 2)
+  if (generated > 0) { queueArena({ key: 'lager' }); tryArenas(); }
+
   if (generated > 0) {
     buildActs({
+      queueArena, tryArenas,
       section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint, hazard, plate, gate,
       face, dirVec, snapshot, rollback, pieceOk, solid, special, fanZone, supports, addPath, markBlink, setPrev, dropLastPath, tagPath,
       water, extinguisher,
       ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),
       pathLength: () => path.length, pathBoxes: (from) => path.slice(from).map((p) => p.box),
       get prev() { return prev; }, get fwd() { return fwd; },
-      BOUND, rnd: mulberry32(SEED), debug: DEBUG, why: () => pieceWhy,
+      BOUND, rnd: mulberry32(opts.seed ?? SEED), debug: DEBUG, why: () => pieceWhy,
     });
   }
+
+  if (arenaQueue.length) throw new Error('Rätsel-Arena ohne Platz: ' + arenaQueue.map((T) => T.key).join(', '));
 
   // Ziel ganz oben
   const goalPad = placeGoal();
@@ -622,6 +672,7 @@ export function buildLevel(opts = {}) {
 
   return {
     statics, movers, decor, signs, zones, path, sections, checkpoints, goal, landmarks,
+    hooks, ladders, props, shortcuts, hazards, plates, machines, levers,
     hooks, ladders, props, shortcuts, hazards, plates, waters, extinguishers,
     spawn: [START_X, 0.05, 8],
     killY: -20,

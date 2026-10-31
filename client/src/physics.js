@@ -35,6 +35,10 @@ export const PHYS = {
   slideAccel: 15,
   slideMax: 12,
   stepUp: 0.35,     // Schrägen und Rohre: so viel geht man ohne Springen hoch
+  // Koop-Klettern
+  boostJump: 11.2,  // Räuberleiter: Sprung von den Händen eines festhaltenden Mitspielers
+  boostReach: 0.85, // so nah muss der Helfer stehen (waagerecht)
+  pullMax: 3.0,     // Hochziehen: Kante greifbar bis hierhin, wenn oben jemand festhält
 };
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -100,6 +104,12 @@ export class Colliders {
             list.push(b);
           }
     }
+    // Maschinen (Rätsel-Plattformen): bewegliche Boxen, Mitspieler für Räuberleiter,
+    // Schalter-Zustände (Notleitern) und ob jemand allein spielt
+    this.dyn = [];
+    this.mates = [];
+    this.flags = new Set();
+    this.solo = true;
     this.out = [];
     this.stamp = 0;
     this.tmp = [0, 0, 0];
@@ -162,6 +172,11 @@ export class Colliders {
           if (!list) continue;
           for (const b of list) if (b._st !== st) { b._st = st; out.push(b); }
         }
+    for (const b of this.dyn) {
+      if (b.hidden || b.max[0] < p[0] - r - 1 || b.min[0] > p[0] + r + 1 || b.max[2] < p[2] - r - 1 || b.min[2] > p[2] + r + 1) continue;
+      if (b.max[1] < p[1] - ry - 1 || b.min[1] > p[1] + ry + 3) continue;
+      out.push(b);
+    }
     for (const b of this.moverBoxes) {
       if (b.max[0] < p[0] - r - 1 || b.min[0] > p[0] + r + 1 || b.max[2] < p[2] - r - 1 || b.min[2] > p[2] + r + 1) continue;
       if (b.max[1] < p[1] - ry - 1 || b.min[1] > p[1] + ry + 3) continue;
@@ -237,6 +252,7 @@ export class Colliders {
   ladderAt(p) {
     const y = p[1] + 0.4;
     for (const l of this.ladders) {
+      if ((l.flag && !this.flags.has(l.flag)) || (l.solo && !this.solo)) continue;
       if (p[0] > l.min[0] && p[0] < l.max[0] && p[2] > l.min[2] && p[2] < l.max[2] && y > l.min[1] && p[1] < l.max[1]) return l;
     }
     return null;
@@ -257,8 +273,12 @@ export function releaseGrips(body) {
   body.gripCool = 0.3;
 }
 
+// Wer auf einem Maschinenteil steht (Gabel, Plattform), stößt nicht an die anderen Teile
+// derselben Maschine: deren achsenparallele Hüllen wachsen beim Drehen und würden ihn wegschieben.
+let ignoreMachine = null, ignoreGround = null;
 function overlaps(p, h, b) {
   if (b.hidden) return false;
+  if (ignoreMachine && b.machine === ignoreMachine && b !== ignoreGround) return false;
   let top = b.max[1];
   if (b.ramp || b.round) {
     if (b.round && Math.abs(roundOffset(b, p[0], p[2])) > b.round.r + 0.22) return false;
@@ -294,7 +314,7 @@ export function moveAxis(body, axis, amount, cols) {
       continue;
     }
     // Schrägen und Rohre: kleine Stufen hinaufgehen statt anstoßen
-    if (b.ramp || b.round) {
+    if (b.ramp || b.round || b.low) {
       const top = topAt(b, c[0], c[2]);
       if (top - (c[1] - h[1]) <= PHYS.stepUp) { c[1] = top + h[1] + EPS; continue; }
     }
@@ -412,7 +432,7 @@ function stepLadder(body, input, cols, dt) {
 
 // input: { x, z } gewünschte Laufrichtung (Welt, Länge ≤ 1), jump (gedrückt-Flanke), brace (gehalten)
 // Laser und Stacheln: Stromschlag mit Rückstoß, Griffe lösen sich – man fällt
-function checkHazards(body, world, dt) {
+export function checkHazards(body, world, dt) {
   body.zapped = null;
   body.steam = false;
   if (body.hurt > 0) { body.hurt -= dt; return; }
@@ -439,19 +459,41 @@ function checkHazards(body, world, dt) {
   }
 }
 
+// Mitspieler (world.mates: { pos, braced, grounded }), der zur Räuberleiter festhält
+function boostHelper(body, world) {
+  for (const m of world.mates) {
+    if (!m.braced || !m.grounded) continue;
+    if (Math.abs(m.pos[1] - body.pos[1]) > 0.5) continue;
+    if (Math.hypot(m.pos[0] - body.pos[0], m.pos[2] - body.pos[2]) < PHYS.boostReach) return m;
+  }
+  return null;
+}
+// Mitspieler, der oben auf der Kante festhält und einen hochziehen kann
+function pullHelper(body, box, world) {
+  for (const m of world.mates) {
+    if (!m.braced || !m.grounded) continue;
+    if (Math.abs(m.pos[1] - box.max[1]) > 0.2) continue;
+    if (m.pos[0] < box.min[0] - 0.1 || m.pos[0] > box.max[0] + 0.1 || m.pos[2] < box.min[2] - 0.1 || m.pos[2] > box.max[2] + 0.1) continue;
+    if (Math.hypot(m.pos[0] - body.pos[0], m.pos[2] - body.pos[2]) < 1.8) return m;
+  }
+  return null;
+}
 // Kante greifen (auch aus dem Wasser): gegen eine Wand, deren Oberkante in Griffhöhe liegt
 function grabLedge(body, input, world, hx, hz) {
   if (body.gripCool > 0 || body.vel[1] >= 2) return;
   for (const [hit, ax] of [[hx, 0], [hz, 2]]) {
     if (!hit || hit.mover || hit.ramp || hit.round || hit.blink || hit.nogrip) continue;
     const rel = hit.max[1] - body.pos[1];
-    if (rel < PHYS.ledgeMin || rel > PHYS.ledgeMax) continue;
+    if (rel < PHYS.ledgeMin || rel > PHYS.pullMax) continue;
     const s = (hit.min[ax] + hit.max[ax]) / 2 > body.pos[ax] ? 1 : -1;
     const n = ax === 0 ? [s, 0] : [0, s];
+    // Zu hoch zum Greifen? Hält oben ein Mitspieler fest, zieht er einen hoch.
+    const pulled = rel > PHYS.ledgeMax;
+    if (pulled && !pullHelper(body, hit, world)) continue;
     if (input.x * n[0] + input.z * n[1] < 0.3) continue;
     const up = [body.pos[0] + n[0] * 0.55, hit.max[1] + EPS, body.pos[2] + n[1] * 0.55];
     if (!freeAt(up, world.near(up, 2))) continue;
-    body.hang = { box: hit, n, top: hit.max[1] };
+    body.hang = { box: hit, n, top: hit.max[1], pulled };
     body.pos[1] = hit.max[1] - PHYS.reach;
     body.vel[0] = body.vel[1] = body.vel[2] = 0;
     body.yaw = Math.atan2(n[0], n[1]);
@@ -462,7 +504,10 @@ function grabLedge(body, input, world, hx, hz) {
 
 export function stepBody(body, input, world, dt) {
   const cols = world.near(body.pos, 3);
+  ignoreGround = body.ground && body.ground.machine ? body.ground : null;
+  ignoreMachine = ignoreGround ? ignoreGround.machine : null;
   body.jumped = false;
+  body.boosted = false;
   body.bounced = null;
   body.climbed = false;
   body.gripCool = Math.max(0, (body.gripCool || 0) - dt);
@@ -479,6 +524,7 @@ export function stepBody(body, input, world, dt) {
     body.jumpBuf = Math.max(0, body.jumpBuf - dt);
     body.justLanded = body.climbed;
     body.inFan = false;
+    ignoreMachine = ignoreGround = null;
     return;
   }
 
@@ -487,6 +533,7 @@ export function stepBody(body, input, world, dt) {
     stepSwim(body, input, world, cols, dt, water, { moveAxis, grabLedge });
     body.jumpBuf = Math.max(0, body.jumpBuf - dt);
     depenetrate(body, cols);
+    ignoreMachine = ignoreGround = null;
     return;
   }
 
@@ -565,7 +612,10 @@ export function stepBody(body, input, world, dt) {
   body.coyote = body.grounded ? PHYS.coyote : body.coyote - dt;
   if (!input.jump) body.jumpBuf -= dt;
   if (body.jumpBuf > 0 && body.coyote > 0 && !body.braced) {
-    body.vel[1] = PHYS.jump;
+    // Räuberleiter: neben einem festhaltenden Mitspieler geht es viel höher
+    const helper = body.grounded ? boostHelper(body, world) : null;
+    body.vel[1] = helper ? PHYS.boostJump : PHYS.jump;
+    body.boosted = !!helper;
     // Schwung der Plattform mitnehmen
     if (body.ground && body.ground.belt) { body.vel[0] += body.ground.belt[0] * 0.5; body.vel[2] += body.ground.belt[2] * 0.5; }
     body.jumpBuf = 0;
@@ -648,6 +698,7 @@ export function stepBody(body, input, world, dt) {
 
   depenetrate(body, cols);
   body.justLanded = body.grounded && !wasGround;
+  ignoreMachine = ignoreGround = null;
 }
 
 // Seil-Kopplung zu einem Partner. Gewichtung: festhalten = unbeweglich,

@@ -4,7 +4,7 @@ import { buildLevel } from '../client/src/level.js';
 const MAX_GAP = 2.45;
 const maxRise = (special) => (special === 'bounce' ? 3.3 : special === 'fan' ? 4.2 : 1.35);
 const t0 = Date.now();
-const level = buildLevel();
+const level = buildLevel(process.env.SEED ? { seed: Number(process.env.SEED) } : {});
 const buildMs = Date.now() - t0;
 let problems = 0;
 const report = (msg) => { problems++; if (problems < 40) console.log('✗ ' + msg); };
@@ -45,6 +45,7 @@ function limits(A, B, rise) {
 for (let i = 1; i < level.path.length; i++) {
   const A = level.path[i - 1], B = level.path[i];
   if (A.kind === 'hook' || B.kind === 'hook') continue;
+  if (B.how === 'coop' || B.how === 'machine') continue; // Koop-Wand und Maschinen: test-arenas.mjs
   // Schwimmstrecken und Ausstiege aus dem Wasser prüft die Simulation
   if (A.kind === 'swim' || B.kind === 'swim') continue;
   const from = endBox(A);
@@ -78,12 +79,13 @@ const near = (b) => {
 
 for (let i = 0; i < solids.length; i++) {
   const s = solids[i];
-  for (const j of near(s)) if (j > i && inter(s, solids[j], 0.01)) report(`Überschneidung: #${i} (${s.mat}) und #${j} (${solids[j].mat})`);
+  const same = (j) => s.arena && s.arena === solids[j].arena; // innerhalb einer Rätsel-Arena
+  for (const j of near(s)) if (j > i && !same(j) && inter(s, solids[j], 0.01)) report(`Überschneidung: #${i} (${s.mat}) und #${j} (${solids[j].mat})`);
   const head = { min: [s.min[0] - 0.3, s.max[1] + 0.01, s.min[2] - 0.3], max: [s.max[0] + 0.3, s.max[1] + 2.0, s.max[2] + 0.3] };
   const bare = { min: [s.min[0], s.max[1] + 0.01, s.min[2]], max: [s.max[0], s.max[1] + 2.0, s.max[2]] };
   // Leitertürme stehen direkt an der Plattform davor: nur echte Überdeckung zählt
   // Becken und Flutkammern: Wände und Ränder derselben Gruppe gehören dazu
-  if (!s.basin) for (const j of near(head)) if (j !== i && inter(head, solids[j]) && !(s.grp && s.grp === solids[j].grp) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
+  if (!s.basin) for (const j of near(head)) if (j !== i && !same(j) && inter(head, solids[j]) && !(s.grp && s.grp === solids[j].grp) && (!solids[j].ladderBlock || inter(bare, solids[j]))) report(`Keine Kopffreiheit über #${i} (${s.mat}) wegen #${j} (${solids[j].mat})`);
 }
 
 for (const [k, m] of level.movers.entries()) {
