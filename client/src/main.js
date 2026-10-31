@@ -1,5 +1,6 @@
 import { buildLevel, sectionAtHeight } from './level.js';
 import { Colliders, createBody, stepBody, applyRope, PHYS } from './physics.js';
+import { FixedStep } from './loop.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
 import { Input, EMOTES } from './input.js';
@@ -91,7 +92,7 @@ class Game {
     this.startedAt = Date.now(); // Beginn der laufenden Sitzung
     this.cp = 0; // erreichter Zwischenstopp des Teams
     this.finished = false;
-    this.acc = 0;
+    this.clock = new FixedStep(1 / 120);
     this.sendAcc = 0;
     this.hudAcc = 0;
     this.last = performance.now();
@@ -342,23 +343,19 @@ class Game {
     const input = this.readInput(dt);
     const wasGrounded = this.body.grounded;
     const fallSpeed = -this.body.vel[1];
-    const step = 1 / 120;
-    this.acc += dt;
-    let first = true;
+    const step = this.clock.step;
     const tNow = this.net.time();
-    const steps = Math.min(12, Math.floor(this.acc / step));
+    // Sprung bleibt gemerkt, falls dieser Frame keinen Physikschritt hat (>120-Hz-Bildschirme)
+    const steps = this.clock.frame(dt, input.jump);
     const ev = { jumped: false, landed: false, landSpeed: 0 };
     for (let i = 0; i < steps; i++) {
       this.world.update(tNow - (steps - 1 - i) * step);
       const vyBefore = this.body.vel[1];
-      stepBody(this.body, first ? input : { ...input, jump: false }, this.world, step);
+      stepBody(this.body, { ...input, jump: this.clock.takeJump() }, this.world, step);
       if (this.body.jumped) ev.jumped = true;
       if (this.body.justLanded) { ev.landed = true; ev.landSpeed = Math.max(ev.landSpeed, -vyBefore); }
-      first = false;
       this.ropeStep(step);
     }
-    this.acc -= steps * step;
-    if (this.acc > step) this.acc = 0;
 
     // Landung: Geräusch + leichtes Kamerawackeln bei harten Aufprallen
     if (!wasGrounded && this.body.grounded && fallSpeed > 6) {
