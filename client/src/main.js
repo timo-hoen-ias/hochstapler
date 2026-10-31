@@ -9,7 +9,6 @@ import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
 import { animCode, decodeAnim } from './anim.js';
-import { trackSafe, resetSafe, spreadOn } from './safespot.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 
 // Blickrichtung für die Figur: an einer Kante zur Wand gedreht
@@ -380,16 +379,6 @@ class Game {
         for (const lp of hit) this.respawn(lp, false);
         break;
       }
-      case 'reset': {
-        // Ein Mitspieler hat die Seilschaft zu seiner sicheren Stelle zurückgesetzt
-        const hit = this.locals.filter((lp) => this.mode !== 'teams' || m.team === undefined || lp.team === m.team);
-        if (!hit.length || !m.box || !m.pos) break;
-        const spot = { box: m.box, pos: m.pos, y: m.box.max[1] };
-        this.placeGroup(hit, spot, m.n || hit.length + 1);
-        this.toast(`${m.name} setzt die Seilschaft zur letzten sicheren Stelle zurück`);
-        audio.play('respawn');
-        break;
-      }
       case 'restart':
         if (m.race) { this.race = m.race; this.tcp = [0, 0]; } else { this.startedAt = m.startedAt; this.played = 0; }
         this.setCheckpoint(0, false, true);
@@ -718,7 +707,6 @@ class Game {
         const vyBefore = b.vel[1];
         if (lp.dead > 0) return; // aufgeklatscht: liegt bis zum Neustart still
         stepBody(b, { ...inputs[k], jump: lp.jump }, this.world, step);
-        trackSafe(lp.safe || (lp.safe = {}), b, this.world, step);
         lp.jump = false;
         if (b.jumped) evs[k].jumped = true;
         if (b.zapped) { audio.play('respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
@@ -956,43 +944,22 @@ class Game {
     lp.body.vel = [0, 0, 0];
     lp.body.grounded = false;
     releaseGrips(lp.body);
-    resetSafe(lp.safe || (lp.safe = {}));
     if (toStart) this.best = 0;
   }
 
-  // Reset-Taste: zurück zur letzten sicheren Stelle (sonst zum Zwischenstopp).
-  // Am Seil kommt die ganze Seilschaft mit, sonst würde das Seil sofort wieder ziehen.
+  // Reset-Taste: zurück zum letzten Zwischenstopp. Am Seil kommt die ganze
+  // Seilschaft mit (sonst zieht das Seil sofort wieder), bei 2 gegen 2 das eigene Team.
   resetToSafe(lp) {
     if (this.paused || this.finished) return;
     const now = performance.now();
     if (now - (this.lastReset || 0) < 800) return;
     this.lastReset = now;
     const chain = this.chains().find((c) => c.some((e) => e.local === lp)) || [{ local: lp }];
-    const spot = lp.safe?.spot;
-    const group = chain.filter((e) => e.local).map((e) => e.local);
-    if (!spot) {
-      for (const g of group) this.respawn(g, false);
-    } else this.placeGroup(group, spot, chain.length);
-    // Online: Mitspieler am selben Seil (bzw. im selben Team) kommen mit
-    if (chain.some((e) => e.remote)) {
-      const via = lp.net?.online ? lp.net : this.net;
-      via.send(spot ? { t: 'reset', box: { min: spot.box.min, max: spot.box.max }, pos: spot.pos, n: chain.length } : { t: 'warp' });
-    }
+    for (const e of chain) if (e.local) this.respawn(e.local, false);
+    if (chain.some((e) => e.remote)) (lp.net?.online ? lp.net : this.net).send({ t: 'warp' });
     audio.play('respawn');
-    const what = spot ? 'zur letzten sicheren Stelle' : `zum ${this.cpLabel(this.cpOf(lp))}`;
-    this.toast(chain.length > 1 ? `${lp.name} setzt die Seilschaft ${what} zurück` : `Zurück ${what}`);
-  }
-
-  placeGroup(group, spot, n) {
-    group.forEach((g, i) => {
-      const b = g.body;
-      b.pos = spreadOn(spot.box, spot.pos, n, (g.slot ?? i) % Math.max(1, n));
-      b.vel = [0, 0, 0];
-      b.grounded = false;
-      releaseGrips(b);
-      g.safe = { spot: { ...spot }, calm: 0 };
-      g.dead = 0; // wer gerade aufgeklatscht ist, kommt direkt mit
-    });
+    const where = this.cpLabel(this.cpOf(lp));
+    this.toast(chain.length > 1 ? `${lp.name} holt die Seilschaft zum ${where}` : `Zurück zum ${where}`);
   }
 
   warpTeam() {

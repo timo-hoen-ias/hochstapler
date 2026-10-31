@@ -228,7 +228,7 @@ export function buildLevel(opts = {}) {
       for (const x of xs) for (const z of zs) {
         let y0 = 0;
         for (const s of grid.get(key(Math.floor(x / cell), Math.floor(z / cell))) || []) {
-          if (s === b || s.max[1] > b.min[1] + 1e-3 || s.blink) continue;
+          if (s === b || s.max[1] > b.min[1] + 1e-3 || s.blink || s.crumble) continue;
           if (x > s.min[0] && x < s.max[0] && z > s.min[2] && z < s.max[2]) y0 = Math.max(y0, s.max[1]);
         }
         // Nur kurze Stützen – lange Stangen durch den ganzen Turm verdecken die Sicht
@@ -458,7 +458,7 @@ export function buildLevel(opts = {}) {
   });
 
   // ───────── Akte 2–7: Set-Pieces mit eigenem Thema je Akt (acts.js) ─────────
-  const BOUND = 42;
+  const BOUND = 54; // halbe Hallenbreite: viel Platz für weite Wege
   const inBounds = (b) => b.min[0] > -BOUND && b.max[0] < BOUND && b.min[2] > -BOUND && b.max[2] < BOUND;
   // Zustand sichern / zurücksetzen, damit ein Set-Piece, das nicht passt, spurlos verschwindet
   const corridors = []; // Sprungräume zwischen Kletterpunkten, die frei bleiben müssen
@@ -533,7 +533,7 @@ export function buildLevel(opts = {}) {
     for (let i = Math.max(1, s.path); i < path.length; i++) {
       const A = path[i - 1], B = path[i];
       const ta = A.box.max[1], tb = B.box.ramp ? B.box.ramp.near : B.box.max[1];
-      let hi = Math.max(ta, tb) + 2.6;
+      let hi = Math.max(ta, tb) + 3.3;
       if (A.special === 'fan' && A.zone) hi = Math.max(hi, A.zone.max[1] + 0.3);
       if (A.special === 'bounce') hi += 1.2;
       // Raum zwischen den einander zugewandten Seiten: überlappende Achsen → Schnittmenge,

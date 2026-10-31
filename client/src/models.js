@@ -517,7 +517,7 @@ export function buildScenery(scene, level, M) {
 
   // Hof: Palettenstapel und Containerreihen als InstancedMesh (je ein Draw-Call)
   const rnd = mulberry(0xc0ffee);
-  const keepOut = (x, z) => Math.abs(x) < 46 && Math.abs(z) < 46;
+  const keepOut = (x, z) => Math.abs(x) < 62 && Math.abs(z) < 62;
   const palletGeo = mergeGeometries([bx([-0.6, 0, -0.5], [0.6, 0.14, 0.5]).toNonIndexed()]);
   const loadGeo = bx([-0.55, 0.14, -0.45], [0.55, 1.2, 0.45]);
   const N = 140;
@@ -526,7 +526,7 @@ export function buildScenery(scene, level, M) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3();
   let k = 0;
   while (k < N) {
-    const a = rnd() * Math.PI * 2, r = 48 + rnd() * 30;
+    const a = rnd() * Math.PI * 2, r = 64 + rnd() * 30;
     const x = Math.cos(a) * r, z = Math.sin(a) * r;
     if (keepOut(x, z)) continue;
     const stack = 1 + Math.floor(rnd() * 3);

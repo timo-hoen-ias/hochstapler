@@ -383,7 +383,7 @@ export class Renderer {
   buildStatics() {
     const groups = {};
     for (const b of this.level.statics) {
-      const key = b.belt || b.blink || b.big || b.ramp || b.round || b.gate ? null : b.mat;
+      const key = b.belt || b.blink || b.crumble || b.big || b.ramp || b.round || b.gate ? null : b.mat;
       if (!key) continue;
       const scale = b.mat.startsWith('container') ? 2.4 : UV_SCALE[b.mat] ?? 1;
       (groups[key] ||= []).push(boxGeo(b.min, b.max, scale));
@@ -398,8 +398,8 @@ export class Renderer {
     // Kippschalen: einzeln, weil sie verschwinden
     this.blinkMeshes = [];
     for (const b of this.level.statics) {
-      if (!b.blink) continue;
-      const mat = new THREE.MeshStandardMaterial({ map: this.tex.blink, roughness: 0.6, emissive: 0xff2a00, emissiveIntensity: 0 });
+      if (!b.blink && !b.crumble) continue;
+      const mat = new THREE.MeshStandardMaterial({ map: b.crumble ? this.tex.timber : this.tex.blink, roughness: 0.8, emissive: 0xff2a00, emissiveIntensity: 0 });
       const mesh = new THREE.Mesh(boxGeo(b.min, b.max, 0), mat);
       mesh.castShadow = mesh.receiveShadow = true;
       this.scene.add(mesh);
