@@ -8,42 +8,42 @@ export const ACTS = [
     key: 'kuehl', name: 'Kühlhaus', sub: 'Glatteis, Eiszapfen und Frostwind',
     fog: [0xa9c6e0, 0x9ebbd8, 0xb8d0e6], mats: ['ice', 'crate', 'grate', 'bin'], beam: 'beam', skin: 'icicle', laser: 0x6fd8ff,
     sections: ['Vorkühlzone', 'Tiefkühlregal', 'Eisfabrik', 'Kältetunnel', 'Frostdach', 'Gefrierturm'],
-    pool: { ice: 5, icicles: 3, stairs: 2, ledges: 2, hooks: 2, beams: 2, wind: 2, tower: 1 },
+    pool: { ice: 4, icicles: 3, poles: 3, shelves: 2, zigzag: 2, ledges: 1, hooks: 2, beams: 2, wind: 2, tower: 1, crumble: 1 },
     puzzles: ['gate', 'fence'], scenery: 'frostracks',
   },
   {
     key: 'paket', name: 'Paketzentrum', sub: 'Bänder, Kippschalen und Scanner',
     fog: [0xd9b48a, 0xd2a77f, 0xe0bf95], mats: ['carton', 'goods', 'grate'], beam: 'beam', skin: 'spikes', laser: 0xff3a2a,
     sections: ['Annahme', 'Sortierturm', 'Kippschalen', 'Rutschenhalle', 'Scannerbrücke', 'Verladung'],
-    pool: { belts: 5, blinks: 3, lasers: 3, tower: 2, stairs: 2, lifts: 1, drop: 1, ledges: 1 },
+    pool: { belts: 4, blinks: 3, lasers: 3, crumble: 3, swing: 2, shelves: 2, zigzag: 2, tower: 1, lifts: 1, drop: 1 },
     puzzles: ['fence', 'gate'], scenery: 'parcelracks',
   },
   {
     key: 'silo', name: 'Hochsilo', sub: 'Aufwind, Förderschnecken und Staub',
     fog: [0x8fa0b8, 0x8695ad, 0x9aabc2], mats: ['concrete', 'grate', 'machine', 'bin'], beam: 'beam', skin: 'spikes', laser: 0xff5a2a,
     sections: ['Silofuß', 'Schneckenförderer', 'Lüftungsschacht', 'Siloköpfe', 'Staubkammer', 'Silodach'],
-    pool: { fans: 4, drums: 3, pipes: 3, tower: 2, wind: 2, ledges: 2, bounce: 1, stairs: 1 },
+    pool: { fans: 4, drums: 3, pipes: 3, crumble: 2, poles: 2, wind: 2, ledges: 1, bounce: 1, tower: 1, zigzag: 1 },
     puzzles: ['gate', 'fence'], scenery: 'silos',
   },
   {
     key: 'chemie', name: 'Gefahrstofflager', sub: 'Säurebecken, Ventile und Laserraster',
     fog: [0xc9b56a, 0xbfae63, 0xd2c27a], mats: ['drum', 'grate', 'machine', 'bin'], beam: 'beam', skin: 'acid', laser: 0x9cff3a,
     sections: ['Fasslager', 'Rohrbrücke', 'Säurebecken', 'Ventilhalle', 'Laborturm', 'Sicherheitszone'],
-    pool: { acid: 4, pipes: 3, lasers: 3, ledges: 2, drums: 1, spikes: 1, stairs: 1, hooks: 1 },
+    pool: { acid: 4, pipes: 3, lasers: 3, spikes: 2, poles: 2, shelves: 2, zigzag: 2, drums: 1, hooks: 1, crumble: 1 },
     puzzles: ['fence', 'gate'], scenery: 'tanks',
   },
   {
     key: 'gleis', name: 'Gleisanschluss', sub: 'Waggons, Oberleitung und Kräne',
     fog: [0x9a8a7c, 0x8f8072, 0xa69585], mats: ['wagon', 'container', 'timber', 'grate'], beam: 'beam', skin: 'spikes', laser: 0x7fb6ff,
     sections: ['Rangiergleis', 'Waggonstapel', 'Oberleitung', 'Drehscheibe', 'Containerzug', 'Stellwerk'],
-    pool: { lifts: 4, trolley: 2, hooks: 2, catenary: 3, beams: 2, stairs: 2, drop: 1, bounce: 1 },
+    pool: { lifts: 3, catenary: 3, swing: 3, trolley: 2, hooks: 2, crumble: 2, poles: 2, beams: 2, drop: 1, bounce: 1 },
     puzzles: ['gate', 'fence'], scenery: 'gantries',
   },
   {
     key: 'kran', name: 'Turmkran', sub: 'Ausleger, Haken und Höhenwind',
     fog: [0x7a7aa8, 0x6c6c9c, 0x5f5f8e], mats: ['concrete', 'grate', 'timber', 'machine'], beam: 'beam', skin: 'spikes', laser: 0xff3a2a,
     sections: ['Baugerüst', 'Betonkern', 'Kranmast', 'Ausleger', 'Gegengewicht', 'Gipfel'],
-    pool: { hooks: 4, trolley: 3, wind: 3, beams: 3, ledges: 2, lasers: 1, spikes: 1, tower: 1 },
+    pool: { hooks: 4, trolley: 3, wind: 3, beams: 3, poles: 3, swing: 2, crumble: 2, zigzag: 2, lasers: 1, spikes: 1 },
     puzzles: ['fence', 'gate'], scenery: 'mast',
   },
 ];
@@ -63,7 +63,19 @@ export function buildActs(k) {
     return ent[0][0];
   };
   const mid = (b) => [(b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2];
-  const S = (dir, gap, dy, along, across, mat, o) => { const [a, l] = dims(dir, along, across); return k.step(dir, gap, dy, a, l, mat, o); };
+  // Schwierigkeit: normale Sprünge weiter und auf kleinere Flächen, je höher desto mehr.
+  // Die Lücke bleibt unter der sicheren Weite für den jeweiligen Anstieg.
+  let G = 0;
+  const KEEP = ['beam', 'belt', 'wagon', 'checkpoint', 'ice', 'fan', 'tires', 'blink', 'machine'];
+  const maxGap = (dy) => 2.3 - 0.55 * Math.max(0, dy - 0.4);
+  const S = (dir, gap, dy, along, across, mat, o = {}) => {
+    if (!o.how && !o.exact) {
+      gap = Math.min(gap * (1.3 + 0.35 * G), Math.max(gap, maxGap(dy)));
+      if (!KEEP.includes(mat)) { const f = 0.85 - 0.25 * G; along = Math.max(1.1, along * f); across = Math.max(1.1, across * f); }
+    }
+    const [a, l] = dims(dir, along, across);
+    return k.step(dir, gap, dy, a, l, mat, o);
+  };
   const turn = () => (rnd() < 0.5 ? 'l' : 'r');
 
   // Laserschranke quer über eine Plattform (dünn entlang Weltachse ax)
@@ -244,7 +256,6 @@ export function buildActs(k) {
       const bs = [];
       const n = 3;
       for (let i = 0; i < n; i++) bs.push(S(i ? (rnd() < 0.7 ? 'f' : turn()) : 'f', R(1.4, 2.0), R(0.0, 0.6), R(2.2, 3), 0.35 - 0.1 * g, T.beam));
-      bs.push(S('f', 1.3, 0.4, 2.2, 2.2, T.mats[1]));
       const r = k.dirVec(turn());
       const span = {
         min: [Math.min(...bs.map((b) => b.min[0])) - 1, Math.min(...bs.map((b) => b.max[1])) - 0.5, Math.min(...bs.map((b) => b.min[2])) - 1],
@@ -252,6 +263,8 @@ export function buildActs(k) {
       };
       const f = 5 + 3 * g;
       k.wind(span, [r[0] * f, 0, r[1] * f], { period: R(4.5, 6), phase: rnd() });
+      // Landeplatz hinter der Windstrecke liegt im Windschatten
+      S('f', 2.2, 0.4, 2.2, 2.2, T.mats[1], { exact: true });
     },
     ice(T, g) {
       S('f', R(1.0, 1.4), R(0.3, 0.7), 3, 3, 'ice', { extra: { ice: true } });
@@ -280,6 +293,38 @@ export function buildActs(k) {
       S('f', R(1.2, 1.6), R(-1.4, -1.0), 2.2, 2.2, T.mats[0], { how: 'long' });
       S(turn(), R(1.6, 2.4), R(-1.6, -1.0), 1.6, 1.6, T.mats[1], { how: 'long' });
       S('f', R(1.2, 1.6), R(1.55, 1.9), 2.4, 2.4, T.mats[0], { h: 1.4, how: 'ledge' });
+    },
+    poles(T, g) { // Pfähle: kleine Trittflächen, Präzisionssprünge
+      const n = 4 + Math.floor(rnd() * 3);
+      for (let i = 0; i < n; i++) {
+        const sz = R(0.55, 0.75) - 0.15 * g;
+        S(i && rnd() < 0.35 ? turn() : 'f', R(1.3, 1.8 + 0.4 * g), R(-0.2, 0.7), sz, sz, 'machine', { exact: true, h: R(1.2, 2.2), supports: true });
+      }
+      S('f', R(1.2, 1.6), R(0.2, 0.6), 1.8, 1.8, T.mats[1]);
+    },
+    crumble(T, g) { // Bruchpaletten: brechen 0,9 s nach dem Betreten weg
+      const n = 4 + Math.floor(rnd() * 2);
+      for (let i = 0; i < n; i++) {
+        S(i && rnd() < 0.4 ? turn() : 'f', R(1.4, 2.0), R(0.0, 0.6), 1.4, 1.4, 'timber', { exact: true, h: 0.3, extra: { crumble: true } });
+      }
+      S('f', R(1.2, 1.6), R(0.2, 0.6), 2, 2, T.mats[1]);
+    },
+    swing(T, g) { // schwingende Kranlast: aufspringen, mitfahren, abspringen
+      S('f', R(1.0, 1.4), R(0.2, 0.6), 2, 2, T.mats[1]);
+      k.mover('swing', 'f', 0.7, 1.6, 1.6, { dist: R(5, 7), period: R(6.5, 7.5) - g, h: 1.1, mat: 'crate' });
+      S('f', 0.7, R(0.0, 0.4), 2, 2, T.mats[0], { exact: true });
+    },
+    shelves(T, g) { // Regalböden: Kante greifen, hochziehen, sofort weiter
+      const n = 3 + (rnd() < g ? 1 : 0);
+      for (let i = 0; i < n; i++) S(i ? turn() : 'f', R(0.9, 1.2), R(1.6, 1.95), 1.6, 1.3, T.mats[i % T.mats.length], { h: 1.4, how: 'ledge' });
+      S('f', R(1.2, 1.6), R(0.2, 0.6), 1.8, 1.8, T.mats[0]);
+    },
+    zigzag(T, g) { // kleine Kisten im Zickzack, weit auseinander
+      let side = turn();
+      for (let i = 0; i < 5; i++) {
+        S(i % 2 ? side : 'f', R(1.8, 2.3), R(-0.1, 0.5), 1.1, 1.1, T.mats[i % T.mats.length], { exact: true });
+        if (i % 2) side = side === 'l' ? 'r' : 'l';
+      }
     },
     // ───── Rätsel ─────
     gate(T, g) {
@@ -362,27 +407,27 @@ export function buildActs(k) {
   }
 
   let hall = 7;
+  const PIECES = 9; // Stücke je Abschnitt, Zwischenstopp nur am Abschnittsanfang
   ACTS.forEach((T, ai) => {
     const recent = [];
     const y0 = k.prev.max[1];
     for (let si = 0; si < 6; si++) {
       const g = Math.min(1, (ai + si / 6) / 5.5);
+      G = g;
       const info = { name: T.sections[si], hall: 'Halle ' + hall++, fog: T.fog[si % T.fog.length], theme: T.name, act: ai + 2 };
       k.section(info, k.fwd, k.prev.max[1]);
       cpPad(info.hall, T);
       if (si === 0) k.sign(`AKT ${ai + 2} · ${T.name.toUpperCase()}`, T.sub);
       else k.sign(`${info.hall.toUpperCase()} · ${info.name.toUpperCase()}`, T.sub);
-      // Abschnitt: 2 Stücke, Zwischenstopp, 3 Stücke. Rätsel in Abschnitt 3 und 6.
+      // Abschnitt: Zwischenstopp, dann 9 Stücke am Stück, darunter ein Koop-Rätsel.
       const plan = [];
-      for (let i = 0; i < 5; i++) {
+      for (let i = 0; i < PIECES; i++) {
         const name = pickW(T.pool, recent.slice(-3));
         plan.push(name);
         recent.push(name);
       }
-      if (si === 2) plan[3] = T.puzzles[0];
-      if (si === 5) plan[1] = T.puzzles[1];
+      plan[3 + (si % 3)] = T.puzzles[si % 2];
       plan.forEach((name, i) => {
-        if (i === 2) cpPad(info.hall + ' Mitte', T, 2.6);
         place(name, T, g);
       });
     }

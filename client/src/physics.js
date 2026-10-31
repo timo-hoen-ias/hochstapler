@@ -28,6 +28,8 @@ export const PHYS = {
   hookJump: 5.5,    // Absprung vom Haken
   windGround: 0.4,  // Wind: Abdrift (m/s je Einheit Windstärke) am Boden …
   windAir: 0.6,     // … und in der Luft
+  crumbleHold: 0.9, // Bruchpalette: so lange hält sie nach dem Betreten …
+  crumbleGone: 4,   // … und so lange ist sie weg
   ladderSpeed: 3.4,
   slideAccel: 15,
   slideMax: 12,
@@ -67,6 +69,9 @@ export class Colliders {
       min: [...m.base.min], max: [...m.base.max], mat: m.mat, mover: m, d: [0, 0, 0], off: [0, 0, 0],
     }));
     this.blinks = level.statics.filter((s) => s.blink);
+    // Bruchpaletten: brechen kurz nach dem Betreten weg und kommen später zurück
+    this.crumbles = level.statics.filter((s) => s.crumble);
+    for (const c of this.crumbles) { c.state = 2; c.crumbleT = -1; }
     this.zones = level.zones || [];
     this.hooks = level.hooks || [];
     this.ladders = level.ladders || [];
@@ -187,6 +192,20 @@ export class Colliders {
       pl.down = down;
       pl.hold = down ? latch : Math.max(0, pl.hold - dt);
       pl.active = this.forceOpen || down || pl.hold > 0;
+    }
+    for (const c of this.crumbles) {
+      if (c.crumbleT < 0) {
+        const on = points.some((p) => p[0] > c.min[0] - 0.3 && p[0] < c.max[0] + 0.3 && p[2] > c.min[2] - 0.3 && p[2] < c.max[2] + 0.3 && p[1] > c.max[1] - 0.15 && p[1] < c.max[1] + 0.3);
+        if (on && !this.forceOpen) c.crumbleT = 0;
+      } else c.crumbleT += dt;
+      const u = c.crumbleT;
+      c.state = u < 0 ? 2 : u < PHYS.crumbleHold ? 1 : u < PHYS.crumbleHold + PHYS.crumbleGone ? 0 : 2;
+      if (u >= PHYS.crumbleHold + PHYS.crumbleGone) {
+        // nicht wieder auftauchen, solange jemand drin steht
+        const inside = points.some((p) => p[0] > c.min[0] - 0.3 && p[0] < c.max[0] + 0.3 && p[2] > c.min[2] - 0.3 && p[2] < c.max[2] + 0.3 && p[1] + 1.8 > c.min[1] && p[1] < c.max[1]);
+        if (!inside) c.crumbleT = -1; else c.state = 0;
+      }
+      c.hidden = c.state === 0;
     }
     for (const g of this.gates) {
       const open = this.forceOpen || g.gate.some((i) => this.plates[i]?.active);

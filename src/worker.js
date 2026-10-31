@@ -167,15 +167,6 @@ export class Room extends DurableObject {
         this.broadcast({ t: 'cp', i, name: me.name }, ws);
         return;
       }
-      case 'reset': {
-        // Reset-Taste: Seilschaft an eine sichere Stelle (Box + Punkt) setzen
-        if (!me.id) return;
-        const num = (v) => Number.isFinite(v) && Math.abs(v) < 5000;
-        const vec = (a) => Array.isArray(a) && a.length === 3 && a.every(num);
-        if (!m.box || !vec(m.box.min) || !vec(m.box.max) || !vec(m.pos)) return;
-        this.broadcast({ t: 'reset', name: me.name, team: me.team ?? 0, box: { min: m.box.min, max: m.box.max }, pos: m.pos, n: Math.max(1, Math.min(4, Number(m.n) || 1)) }, ws);
-        return;
-      }
       case 'warp':
         if (!me.id) return;
         this.broadcast({ t: 'warp', name: me.name, team: me.team ?? 0 }, ws);
