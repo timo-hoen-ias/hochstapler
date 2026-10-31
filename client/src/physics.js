@@ -29,6 +29,8 @@ export const PHYS = {
   hookJump: 5.5,    // Absprung vom Haken
   windGround: 0.4,  // Wind: Abdrift (m/s je Einheit Windstärke) am Boden …
   windAir: 0.6,     // … und in der Luft
+  ramKick: 7.5,     // Rammbock/Presse: so hart stößt er weg (waagerecht) …
+  ramLift: 3.5,     // … und so stark hebt er an
   crumbleHold: 0.9, // Bruchpalette: so lange hält sie nach dem Betreten …
   crumbleGone: 4,   // … und so lange ist sie weg
   ladderSpeed: 3.4,
@@ -327,11 +329,11 @@ export function moveAxis(body, axis, amount, cols) {
 }
 
 // Schiebt den Körper aus beweglichen Boxen heraus (wenn eine Plattform in ihn hineinfährt)
-function depenetrate(body, cols) {
+function depenetrate(body, cols, ramsOnly = false) {
   const h = PHYS.half;
   const c = centerOf(body);
   for (const b of cols) {
-    if (!b.mover) continue;
+    if (!b.mover || (ramsOnly && !b.mover.ram)) continue;
     if (!overlaps(c, h, b)) continue;
     let best = Infinity, axis = 0, dir = 1;
     for (let i = 0; i < 3; i++) {
@@ -339,6 +341,27 @@ function depenetrate(body, cols) {
       const down = (c[i] + h[i]) - b.min[i];
       if (up < best) { best = up; axis = i; dir = 1; }
       if (down < best) { best = down; axis = i; dir = -1; }
+    }
+    // Rammbock/Presse: nie in den Boden drücken, sondern seitlich hinaus und weg
+    if (b.mover.ram && !(axis === 1 && dir > 0)) {
+      if (axis === 1) {
+        // Presse: quer zur Laufrichtung zur näheren Seite hinaus (nicht auf die nächste Stufe)
+        axis = b.mover.side[0] ? 0 : 2;
+        const up = b.max[axis] - (c[axis] - h[axis]), down = (c[axis] + h[axis]) - b.min[axis];
+        if (up < down) { best = up; dir = 1; } else { best = down; dir = -1; }
+      }
+      c[axis] += dir * (best + EPS);
+      // nur stoßen, wenn er auf einen zufährt (nicht beim Zurückfahren anlehnen)
+      const hit = b.mover.kind === 'press' ? b.d[1] < -1e-4 : b.d[axis] * dir > 1e-4;
+      if (hit) {
+        const o = axis === 0 ? 2 : 0;
+        body.vel[axis] = dir * PHYS.ramKick;
+        body.vel[o] *= 0.3;
+        body.vel[1] = Math.max(body.vel[1], PHYS.ramLift);
+        body.grounded = false; body.ground = null; body.coyote = 0;
+        body.shoved = true;
+      }
+      continue;
     }
     c[axis] += dir * (best + EPS);
     if (axis === 1 && dir > 0) { body.vel[1] = Math.max(body.vel[1], 0); body.grounded = true; body.ground = b; }
@@ -510,10 +533,13 @@ export function stepBody(body, input, world, dt) {
   body.boosted = false;
   body.bounced = null;
   body.climbed = false;
+  body.shoved = false;
   body.gripCool = Math.max(0, (body.gripCool || 0) - dt);
   if (input.jump) body.jumpBuf = PHYS.jumpBuffer;
   if (world.hazards.length) checkHazards(body, world, dt);
   const water = preStep(body, world, dt);
+  // Rammböcke und Pressen zuerst: sonst stellt die Schwerkraft einen oben drauf
+  if (!body.hang && !body.hook && !body.ladder && world.moverBoxes.length) depenetrate(body, cols, true);
 
   // Festhalten an Kante, Haken oder Leiter
   if (body.hang || body.hook || body.ladder) {

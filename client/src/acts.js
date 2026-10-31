@@ -10,42 +10,42 @@ export const ACTS = [
     key: 'kuehl', name: 'Kühlhaus', sub: 'Glatteis, Eiszapfen und Frostwind',
     fog: [0xa9c6e0, 0x9ebbd8, 0xb8d0e6], mats: ['ice', 'crate', 'grate', 'bin'], beam: 'beam', skin: 'icicle', laser: 0x6fd8ff,
     sections: ['Vorkühlzone', 'Tiefkühlregal', 'Eisfabrik', 'Kältetunnel', 'Frostdach', 'Gefrierturm'],
-    pool: { ice: 4, icicles: 3, poles: 3, shelves: 2, zigzag: 2, ledges: 1, hooks: 2, beams: 2, wind: 2, tower: 1, crumble: 1 },
+    pool: { sliders: 1, presses: 1, ice: 4, icicles: 3, poles: 3, shelves: 2, zigzag: 2, ledges: 1, hooks: 2, beams: 2, wind: 2, tower: 1, crumble: 1 },
     puzzles: ['gate', 'fence'], scenery: 'frostracks',
   },
   {
     key: 'paket', name: 'Paketzentrum', sub: 'Bänder, Kippschalen und Scanner',
     fog: [0xd9b48a, 0xd2a77f, 0xe0bf95], mats: ['carton', 'goods', 'grate'], beam: 'beam', skin: 'spikes', laser: 0xff3a2a,
     sections: ['Annahme', 'Sortierturm', 'Kippschalen', 'Rutschenhalle', 'Scannerbrücke', 'Verladung'],
-    pool: { belts: 4, blinks: 3, lasers: 3, crumble: 3, swing: 2, shelves: 2, zigzag: 2, tower: 1, lifts: 1, drop: 1 },
+    pool: { rams: 2, gauntlet: 1, sliders: 1, belts: 4, blinks: 3, lasers: 3, crumble: 3, swing: 2, shelves: 2, zigzag: 2, tower: 1, lifts: 1, drop: 1 },
     puzzles: ['fence', 'gate'], scenery: 'parcelracks',
   },
   {
     key: 'silo', name: 'Hochsilo', sub: 'Aufwind, Förderschnecken und Staub',
     fog: [0x8fa0b8, 0x8695ad, 0x9aabc2], mats: ['concrete', 'grate', 'machine', 'bin'], beam: 'beam', skin: 'spikes', laser: 0xff5a2a,
     sections: ['Silofuß', 'Schneckenförderer', 'Lüftungsschacht', 'Siloköpfe', 'Staubkammer', 'Silodach'],
-    pool: { fans: 4, drums: 3, pipes: 3, crumble: 2, poles: 2, wind: 2, ledges: 1, bounce: 1, tower: 1, zigzag: 1 },
+    pool: { presses: 2, rams: 1, sliders: 1, fans: 4, drums: 3, pipes: 3, crumble: 2, poles: 2, wind: 2, ledges: 1, bounce: 1, tower: 1, zigzag: 1 },
     puzzles: ['gate', 'fence'], scenery: 'silos',
   },
   {
     key: 'chemie', name: 'Gefahrstofflager', sub: 'Säurebecken, Ventile und Laserraster',
     fog: [0xc9b56a, 0xbfae63, 0xd2c27a], mats: ['drum', 'grate', 'machine', 'bin'], beam: 'beam', skin: 'acid', laser: 0x9cff3a,
     sections: ['Fasslager', 'Rohrbrücke', 'Säurebecken', 'Ventilhalle', 'Laborturm', 'Sicherheitszone'],
-    pool: { acid: 4, pipes: 3, lasers: 3, spikes: 2, poles: 2, shelves: 2, zigzag: 2, drums: 1, hooks: 1, crumble: 1 },
+    pool: { presses: 2, gauntlet: 2, rams: 1, acid: 4, pipes: 3, lasers: 3, spikes: 2, poles: 2, shelves: 2, zigzag: 2, drums: 1, hooks: 1, crumble: 1 },
     puzzles: ['fence', 'gate'], scenery: 'tanks',
   },
   {
     key: 'gleis', name: 'Gleisanschluss', sub: 'Waggons, Oberleitung und Kräne',
     fog: [0x9a8a7c, 0x8f8072, 0xa69585], mats: ['wagon', 'container', 'timber', 'grate'], beam: 'beam', skin: 'spikes', laser: 0x7fb6ff,
     sections: ['Rangiergleis', 'Waggonstapel', 'Oberleitung', 'Drehscheibe', 'Containerzug', 'Stellwerk'],
-    pool: { lifts: 3, catenary: 3, swing: 3, trolley: 2, hooks: 2, crumble: 2, poles: 2, beams: 2, drop: 1, bounce: 1 },
+    pool: { sliders: 2, rams: 2, gauntlet: 1, lifts: 3, catenary: 3, swing: 3, trolley: 2, hooks: 2, crumble: 2, poles: 2, beams: 2, drop: 1, bounce: 1 },
     puzzles: ['gate', 'fence'], scenery: 'gantries',
   },
   {
     key: 'kran', name: 'Turmkran', sub: 'Ausleger, Haken und Höhenwind',
     fog: [0x7a7aa8, 0x6c6c9c, 0x5f5f8e], mats: ['concrete', 'grate', 'timber', 'machine'], beam: 'beam', skin: 'spikes', laser: 0xff3a2a,
     sections: ['Baugerüst', 'Betonkern', 'Kranmast', 'Ausleger', 'Gegengewicht', 'Gipfel'],
-    pool: { hooks: 4, trolley: 3, wind: 3, beams: 3, poles: 3, swing: 2, crumble: 2, zigzag: 2, lasers: 1, spikes: 1 },
+    pool: { sliders: 3, gauntlet: 2, presses: 1, rams: 1, hooks: 4, trolley: 3, wind: 3, beams: 3, poles: 3, swing: 2, crumble: 2, zigzag: 2, lasers: 1, spikes: 1 },
     puzzles: ['fence', 'gate'], scenery: 'mast',
   },
   FIRE_ACT, // Akt 8: Feuer und Wasser (wasserwerk.js)
@@ -91,6 +91,21 @@ export function buildActs(k) {
     return k.hazard('laser', min, max, { color: T.laser, ...o });
   };
   const axisOf = (dir) => (k.dirVec(dir)[0] ? 0 : 2);
+  // Rammbock neben Plattform b: fährt quer zur Laufrichtung fv über sie hinweg und stößt alles hinunter.
+  // side = +1 (von rechts) / -1 (von links). o: { period, phase, h, at (Lage entlang), thick }
+  const ramAcross = (b, fv, side, o) => {
+    const A = fv[0] ? 0 : 2, C = 2 - A;
+    const rv = [-fv[1], fv[0]]; // rechts
+    const ws = side * (rv[0] || rv[1]); // Weltrichtung, aus der er kommt
+    const min = [0, b.max[1], 0], max = [0, b.max[1] + o.h, 0];
+    if (o.at !== undefined) { min[A] = o.at - o.thick / 2; max[A] = o.at + o.thick / 2; }
+    else { min[A] = b.min[A] - 0.1; max[A] = b.max[A] + 0.1; }
+    const th = 0.5, gap = 0.12;
+    if (ws > 0) { min[C] = b.max[C] + gap; max[C] = b.max[C] + gap + th; } else { max[C] = b.min[C] - gap; min[C] = b.min[C] - gap - th; }
+    const travel = (b.max[C] - b.min[C]) + gap + 0.45;
+    const delta = [0, 0, 0]; delta[C] = -ws * travel;
+    return k.pusher(min, max, delta, { period: o.period, phase: o.phase });
+  };
   const floorHazard = (T, b, o = {}) => k.hazard('spikes', [b.min[0], b.max[1], b.min[2]], [b.max[0], b.max[1] + (T.skin === 'acid' ? 0.2 : 0.4), b.max[2]], { skin: T.skin, ...o });
 
   // ───────── Set-Pieces ─────────
@@ -331,6 +346,60 @@ export function buildActs(k) {
         if (i % 2) side = side === 'l' ? 'r' : 'l';
       }
     },
+    // ───── Schwere Passagen ─────
+    sliders(T, g) { // Schiebebalken: schmale Träger fahren quer hin und her, im Gegentakt
+      const period = R(4.6, 5.4) - 0.8 * g, phase = rnd();
+      const w = 0.42 - 0.12 * g;
+      const n = 3 + (rnd() < g ? 1 : 0);
+      let sd = rnd() < 0.5 ? -1 : 1;
+      S('f', R(1.0, 1.4), R(0.2, 0.6), 2.0, 2.0, T.mats[1]);
+      k.sign('SCHIEBEBALKEN', 'Abspringen, wenn der Träger vor dir steht');
+      for (let i = 0; i < n; i++) {
+        k.mover('slide', 'f', R(1.0, 1.4 + 0.3 * g), R(2.2, 2.6), w, { side: true, dist: (sd *= -1) * R(1.8, 2.4 + 0.6 * g), period, phase, h: 0.25, mat: 'beam', dy: R(0.0, 0.4) });
+      }
+      S('f', R(1.0, 1.3), R(0.0, 0.4), 2.0, 2.0, T.mats[0], { exact: true });
+    },
+    rams(T, g) { // Rammböcke: jede Plattform wird im Takt leergefegt
+      const period = R(3.0, 3.6) - 0.5 * g;
+      const n = 3;
+      const fv = k.dirVec('f');
+      for (let i = 0; i < n; i++) {
+        const b = S('f', R(1.3, 1.8 + 0.3 * g), R(0.0, 0.6), 1.8, 1.8, T.mats[1], { exact: true });
+        if (i === 0) k.sign('RAMMBÖCKE', 'Warten, bis der Kolben zurückfährt – dann rüber');
+        ramAcross(b, fv, rnd() < 0.5 ? -1 : 1, { period, phase: 0.18 * i, h: 1.15 });
+      }
+      S('f', R(1.2, 1.6), R(0.2, 0.6), 2.0, 2.0, T.mats[0], { exact: true });
+    },
+    gauntlet(T, g) { // Stoßgasse: langer schmaler Steg, Kolben stoßen abwechselnd von links und rechts
+      const fv = k.dirVec('f');
+      S('f', R(1.0, 1.4), R(0.2, 0.6), 2.0, 2.0, T.mats[1], { exact: true });
+      k.sign('STOSSGASSE', 'Kolben stoßen dich vom Steg – Rhythmus abpassen');
+      const len = R(7.5, 9), w = 0.62 - 0.12 * g;
+      const b = S('f', R(1.0, 1.3), R(0.0, 0.4), len, w, T.beam, { exact: true });
+      const period = R(3.0, 3.5) - 0.4 * g;
+      const n = 3;
+      const ax = axisOf('f');
+      const sg = fv[0] || fv[1];
+      for (let i = 0; i < n; i++) {
+        const t = (i + 1) / (n + 1); // Lage entlang des Stegs
+        const at = ax === 0 ? (sg > 0 ? b.min[0] + t * len : b.max[0] - t * len) : (sg > 0 ? b.min[2] + t * len : b.max[2] - t * len);
+        // Welle in Laufrichtung: der nächste Kolben stößt etwas später
+        ramAcross(b, fv, i % 2 ? 1 : -1, { period, phase: (0.55 - 0.1 * i + 1) % 1, h: 1.05, at, thick: 0.9 });
+      }
+      S('f', R(1.0, 1.3), R(0.0, 0.4), 2.0, 2.0, T.mats[0], { exact: true });
+    },
+    presses(T, g) { // Stanzpressen: kleine Tritte unter Stempeln, die herunterknallen
+      const period = R(2.8, 3.4) - 0.4 * g;
+      const n = 3 + (rnd() < 0.3 + 0.5 * g ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const s = 1.3 - 0.2 * g;
+        const b = S('f', R(1.3, 1.7 + 0.3 * g), R(-0.2, 0.5), s, s, 'machine', { exact: true, h: R(1.2, 2.0), supports: true });
+        if (i === 0) k.sign('STANZPRESSEN', 'Unter dem Stempel nicht stehen bleiben');
+        const top = b.max[1] + 2.75;
+        k.pusher([b.min[0] - 0.05, top, b.min[2] - 0.05], [b.max[0] + 0.05, top + 1.1, b.max[2] + 0.05], [0, -2.75, 0], { press: true, period, phase: (0.15 * i) % 1 });
+      }
+      S('f', R(1.2, 1.6), R(0.2, 0.6), 2.0, 2.0, T.mats[1], { exact: true });
+    },
     // ───── Rätsel ─────
     gate(T, g) {
       const base = S('f', R(1.0, 1.4), R(0.3, 0.7), 3.2, 3.2, 'grate');
@@ -413,6 +482,7 @@ export function buildActs(k) {
     throw new Error('Akte: kein Platz für Zwischenstopp ' + label);
   }
 
+  const HARD = ['sliders', 'rams', 'gauntlet', 'presses'];
   let hall = 7;
   const PIECES = 9; // Stücke je Abschnitt, Zwischenstopp nur am Abschnittsanfang
   ACTS.forEach((T, ai) => {
@@ -434,6 +504,11 @@ export function buildActs(k) {
         recent.push(name);
       }
       plan[3 + (si % 3)] = T.puzzles[si % 2];
+      // Harte Passagen (Schiebebalken, Rammböcke, Stoßgasse, Pressen): mindestens zwei je Akt
+      if (si === 2 || si === 5) {
+        const hard = Object.fromEntries(Object.entries(T.pool).filter(([n]) => HARD.includes(n)));
+        if (Object.keys(hard).length) plan[7] = pickW(hard);
+      }
       // Große Rätsel-Plattform mit Maschine (arenas.js), einmal je Akt – sobald Platz ist
       if (si === 3) k.queueArena(T);
       if (T.fixed?.[si]) plan[1] = T.fixed[si];

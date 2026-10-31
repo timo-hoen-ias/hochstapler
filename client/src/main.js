@@ -751,6 +751,7 @@ class Game {
         if (b.boosted) { audio.play('jump', { pos: b.pos }); if (!this.boostTold) { this.boostTold = true; this.toast('Räuberleiter!'); } }
         if (b.jumped) evs[k].jumped = true;
         if (b.zapped) { audio.play(b.zapped === 'fire' ? 'ignite' : 'respawn'); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.6); }
+        if (b.shoved) { audio.play('land', { speed: 14, mat: 'machine', pos: b.pos }); if (k === 0) this.view.shake = Math.max(this.view.shake, 0.5); }
         if (b.splash) lp.splashEv = Math.max(lp.splashEv || 0, b.splash);
         if (b.gotExt) lp.gotExt = true;
         if (b.justLanded) { evs[k].landed = true; evs[k].landSpeed = Math.max(evs[k].landSpeed, -vyBefore); }

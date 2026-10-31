@@ -24,6 +24,7 @@ function startTime(A, B) {
   const want = (u) => { let k = 0; while (k++ < 200000) { t += 0.005; if (u()) return; } };
   if (B.mover) want(() => { const u = phaseOf(B.mover.period, B.mover.phase, t); return u > 0.0 && u < 0.01; });
   else if (B.kind === 'blink') want(() => { const u = phaseOf(B.box.blink.period, B.box.blink.phase, t); return u > 0.0 && u < 0.01; });
+  else if (A.mover && A.mover.sidestep) want(() => { const u = phaseOf(A.mover.period, A.mover.phase, t); return u > 0.0 && u < 0.01; });
   else if (A.mover) want(() => { const u = phaseOf(A.mover.period, A.mover.phase, t); return u > 0.5 && u < 0.51; });
   else if (A.kind === 'blink') want(() => { const u = phaseOf(A.box.blink.period, A.box.blink.phase, t); return u > 0.0 && u < 0.01; });
   return t;
