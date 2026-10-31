@@ -19,9 +19,15 @@ export const PHYS = {
   reach: 1.95,      // Hände über dem Fußpunkt beim Hängen
   ledgeMin: 1.15,   // Kante greifbar, wenn sie so hoch über den Füßen liegt …
   ledgeMax: 2.15,   // … bis hierhin
-  hookGrab: 0.8,    // Greifradius am Kranhaken
+  hookGrab: 1.0,    // Greifradius am Kranhaken (waagerecht, um Haken und Kette)
+  hookGrabLow: 0.9, // so weit darf die Hand unter dem Haken sein …
+  hookGrabHigh: 1.6, // … und so weit darüber (an der Kette greifen)
+  hookAssist: 2.4,  // in diesem Umkreis lenkt der Sprung sanft zum Haken
+  hookAssistAccel: 12,
   hookPump: 9,      // Schwungkraft am Haken
   hookJump: 5.5,    // Absprung vom Haken
+  windGround: 0.4,  // Wind: Abdrift (m/s je Einheit Windstärke) am Boden …
+  windAir: 0.6,     // … und in der Luft
   ladderSpeed: 3.4,
   slideAccel: 15,
   slideMax: 12,
@@ -191,11 +197,16 @@ export class Colliders {
     }
   }
 
-  hookNear(hand, r) {
-    let best = null, bd = r;
+  // Nächster Haken, den die Hand erwischt: Zylinder um Haken und unteres Kettenstück
+  hookNear(hand, r, low = PHYS.hookGrabLow, high = PHYS.hookGrabHigh) {
+    let best = null, bd = Infinity;
     for (const h of this.hooks) {
-      const g = h.cur;
-      const d = Math.hypot(hand[0] - g[0], hand[1] - (g[1] - h.len), hand[2] - g[2]);
+      const g = h.cur, gy = g[1] - h.len;
+      const dv = hand[1] - gy;
+      if (dv < -low || dv > high) continue;
+      const dh = Math.hypot(hand[0] - g[0], hand[2] - g[2]);
+      if (dh > r) continue;
+      const d = dh + Math.abs(dv) * 0.3;
       if (d < bd) { bd = d; best = h; }
     }
     return best;
@@ -448,6 +459,16 @@ export function stepBody(body, input, world, dt) {
   const onRound = g0 && g0.round;
   let wantX = body.braced ? 0 : input.x * PHYS.speed;
   let wantZ = body.braced ? 0 : input.z * PHYS.speed;
+  // Wind: Böen treiben den Spieler ab. Als Zielgeschwindigkeit eingerechnet, sonst hebt die
+  // Laufsteuerung (70 m/s²) die Windkraft sofort wieder auf. Festhalten (Shift) schützt.
+  const wind = world.zoneAt(body.pos, true);
+  body.inWind = wind ? world.gust(wind) : 0;
+  let windy = false;
+  if (wind && !body.braced) {
+    const f = body.inWind * (body.grounded ? PHYS.windGround : PHYS.windAir);
+    wantX += wind.push[0] * f; wantZ += wind.push[2] * f;
+    windy = body.inWind > 0.3;
+  }
   // In der Luft Schwung behalten (Rutsche, Haken, Luftpolster): nur die Richtung lenken
   const hs = Math.hypot(body.vel[0], body.vel[2]);
   if (!body.grounded && hs > PHYS.speed && (input.x || input.z)) {
@@ -465,7 +486,7 @@ export function stepBody(body, input, world, dt) {
     // In der Luft nur sanft abbremsen, damit Seilschwünge erhalten bleiben
     const idle = input.x === 0 && input.z === 0 && !body.braced;
     const slick = onIce || onSlide;
-    const airKeep = idle && (!body.grounded || slick) ? (slick ? 0.05 : 0.15) : 1;
+    const airKeep = idle && !windy && (!body.grounded || slick) ? (slick ? 0.05 : 0.15) : 1;
     body.vel[0] += dvx * k * airKeep;
     body.vel[2] += dvz * k * airKeep;
   }
@@ -501,13 +522,6 @@ export function stepBody(body, input, world, dt) {
   const zone = world.zoneAt(body.pos);
   body.inFan = !!zone;
   if (zone && !body.braced) body.vel[1] = Math.min(body.vel[1] + zone.lift * dt, PHYS.fanMax);
-  // Wind: seitliche Böen, Festhalten schützt
-  const wind = world.zoneAt(body.pos, true);
-  body.inWind = wind ? world.gust(wind) : 0;
-  if (wind && !body.braced) {
-    const f = body.inWind * (body.grounded ? 0.55 : 1) * dt;
-    body.vel[0] += wind.push[0] * f; body.vel[2] += wind.push[2] * f;
-  }
 
   body.vel[1] = Math.max(body.vel[1] - PHYS.gravity * dt, -PHYS.maxFall);
 
@@ -564,11 +578,25 @@ export function stepBody(body, input, world, dt) {
     }
   }
 
-  // Kranhaken greifen
+  // Kranhaken greifen. Im Sprung lenkt eine sanfte Hilfe zum nahen Haken,
+  // damit man ihn nicht knapp verfehlt; gegriffen wird an Haken und Kette.
   if (!body.grounded && !body.hang && body.gripCool <= 0 && world.hooks.length) {
     const hand = [body.pos[0], body.pos[1] + PHYS.reach, body.pos[2]];
     const hk = world.hookNear(hand, PHYS.hookGrab);
     if (hk) { body.hook = { h: hk, last: [...hk.cur] }; body.jumpBuf = 0; }
+    else {
+      const near = world.hookNear(hand, PHYS.hookAssist, 1.6, 2.4);
+      if (near) {
+        const g = near.cur;
+        const lx = g[0] - hand[0], lz = g[2] - hand[2], l = Math.hypot(lx, lz) || 1;
+        // nur helfen, wenn man ohnehin ungefähr auf den Haken zu fliegt
+        const toward = (body.vel[0] * lx + body.vel[2] * lz) / l;
+        if (toward > -0.5) {
+          const a = PHYS.hookAssistAccel * dt * Math.min(1, l / 0.6);
+          body.vel[0] += lx / l * a; body.vel[2] += lz / l * a;
+        }
+      }
+    }
   }
 
   // Leiter: in der Leiterzone zur Wand drücken

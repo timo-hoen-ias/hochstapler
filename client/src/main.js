@@ -8,7 +8,13 @@ import { Menu } from './menu.js';
 import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
+import { animCode, decodeAnim } from './anim.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
+
+// Blickrichtung für die Figur: an einer Kante zur Wand gedreht
+function visYaw(b) {
+  return b.hang ? Math.atan2(b.hang.n[0], b.hang.n[1]) : b.yaw;
+}
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -327,7 +333,7 @@ class Game {
         if (r.grounded && !m.g && m.v[1] > 3) audio.remoteJump(m.p);
         if (!m.g) r.airVy = Math.min(r.airVy || 0, m.v[1]);
         else if (!r.grounded) { audio.remoteLand(m.p, -(r.airVy || 0)); r.airVy = 0; }
-        r.target = m.p; r.vel = m.v; r.yaw = m.y; r.grounded = m.g; r.braced = m.b;
+        r.target = m.p; r.vel = m.v; r.yaw = m.y; r.grounded = m.g; r.braced = m.b; r.a = m.a;
         r.age = 0;
         if (!r.rpos) r.rpos = [...m.p];
         r.maxY = Math.max(r.maxY || 0, m.p[1]);
@@ -392,7 +398,7 @@ class Game {
     const r = {
       id: p.id, name: p.name, slot: p.slot, color: p.color, team: p.team ?? 0,
       target: s.p || [...this.level.spawn], rpos: s.p ? [...s.p] : [...this.level.spawn],
-      vel: s.v || [0, 0, 0], yaw: s.y || 0, grounded: s.g ?? true, braced: !!s.b, age: 0, maxY: 0,
+      vel: s.v || [0, 0, 0], yaw: s.y || 0, grounded: s.g ?? true, braced: !!s.b, a: s.a, age: 0, maxY: 0,
     };
     this.remotes.set(p.id, r);
     this.view.createAvatar(p.id, p.name, p.color);
@@ -730,6 +736,8 @@ class Game {
     if (this.tension > 1.02 && !(this.lastTension > 1.02)) { this.view.shake = Math.max(this.view.shake, 0.25); }
     this.lastTension = this.tension;
 
+    // Seilzug je Spieler für die Animation (aus den Positionen, für alle gleich)
+    const pulls = this.ropePulls();
     // Mitspieler glätten
     for (const r of this.remotes.values()) {
       r.age += dt;
@@ -738,13 +746,21 @@ class Game {
         const want = r.target[i] + (r.vel[i] || 0) * lead * (i === 1 && r.grounded ? 0 : 1);
         r.rpos[i] += (want - r.rpos[i]) * Math.min(1, dt * 14);
       }
-      this.view.updateAvatar(r.id, r.rpos, r.vel, r.yaw, r.grounded, r.braced, dt, false);
+      const an = decodeAnim(r.a, r.grounded, r.braced);
+      this.view.updateAvatar(r.id, {
+        pos: r.rpos, vel: r.vel, yaw: r.yaw, grounded: r.grounded, braced: r.braced, ...an,
+        grip: an.mode === 3 ? this.hookGrip(r.rpos) : null, pull: pulls.get(r.id),
+      }, dt, false);
     }
     // Namensschilder über lokalen Spielern nur, wenn mehrere am Bildschirm sind
     const single = locals.length === 1;
     for (const lp of locals) {
       const b = lp.body;
-      this.view.updateAvatar(lp.id, b.pos, b.vel, b.yaw, b.grounded, b.braced, dt, single);
+      const an = decodeAnim(animCode(b));
+      this.view.updateAvatar(lp.id, {
+        pos: b.pos, vel: b.vel, yaw: visYaw(b), grounded: b.grounded, braced: b.braced, ...an,
+        grip: b.hook ? b.hook.h.cur : null, pull: pulls.get(lp.id),
+      }, dt, single);
     }
 
     // Seile zeichnen (bei 2 gegen 2 eins je Team)
@@ -761,7 +777,7 @@ class Game {
       const r2 = (v) => Math.round(v * 100) / 100;
       for (const lp of locals) {
         const b = lp.body;
-        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(b.yaw), g: b.grounded, b: b.braced });
+        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(visYaw(b)), g: b.grounded, b: b.braced, a: animCode(b) });
       }
     }
 
@@ -792,6 +808,42 @@ class Game {
     this.view.update(dt, this.world, views ? this.cameraFocus().target : p1.pos, views);
     // Erst nach Spieler 1 (der sich in readInputs seinen Controller nimmt): freie Controller dürfen einsteigen
     if (!this.paused && !this.finished) this.pollNewPads();
+  }
+
+  // Zug des Seils am Gurt (Welt-Vektor, Länge 0..1) für jeden Spieler
+  ropePulls() {
+    const out = new Map();
+    const L = PHYS.rope;
+    for (const chain of this.chains()) {
+      for (let i = 1; i < chain.length; i++) {
+        const a = this.posOf(chain[i - 1]), b = this.posOf(chain[i]);
+        const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        const len = Math.hypot(d[0], d[1], d[2]);
+        const k = Math.min(1, Math.max(0, (len / L - 0.93) * 9));
+        if (k <= 0 || len < 1e-3) continue;
+        for (const [c, sg] of [[chain[i - 1], 1], [chain[i], -1]]) {
+          const v = out.get(c.id) || [0, 0, 0];
+          for (let j = 0; j < 3; j++) v[j] += (d[j] / len) * k * sg;
+          out.set(c.id, v);
+        }
+      }
+    }
+    for (const v of out.values()) {
+      const l = Math.hypot(v[0], v[1], v[2]);
+      if (l > 1) for (let j = 0; j < 3; j++) v[j] /= l;
+    }
+    return out;
+  }
+
+  // Aufhängepunkt des Kranhakens, an dem ein Mitspieler hängt (für das Pendeln)
+  hookGrip(p) {
+    const hand = [p[0], p[1] + PHYS.reach, p[2]];
+    let best = null, bd = 0.6;
+    for (const h of this.world.hooks) {
+      const d = Math.abs(Math.hypot(hand[0] - h.cur[0], hand[1] - h.cur[1], hand[2] - h.cur[2]) - h.len);
+      if (d < bd) { bd = d; best = h.cur; }
+    }
+    return best;
   }
 
   posOf(c) {

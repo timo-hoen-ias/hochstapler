@@ -9,6 +9,7 @@ import { makeTextures, textCanvas } from './textures.js';
 import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
 import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
+import { Rig } from './anim.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -643,48 +644,23 @@ export class Renderer {
 
   // ───────── Spielfiguren ─────────
   createAvatar(id, name, color) {
-    const g = new THREE.Group();
-    const vestMat = new THREE.MeshStandardMaterial({ map: this.tex.vest(color), roughness: 0.6 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x2b3442, roughness: 0.8 });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.7 });
-    const hat = new THREE.MeshStandardMaterial({ color: 0xf2c014, roughness: 0.4 });
-
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.65, 0.32), vestMat);
-    torso.position.y = 1.08;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), skin);
-    head.position.y = 1.62;
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), hat);
-    helmet.position.y = 1.68;
-    const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.03, 16), hat);
-    brim.position.y = 1.68;
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.05), new THREE.MeshStandardMaterial({ color: 0x111111 }));
-    visor.position.set(0, 1.62, 0.18);
-
-    const limb = (w, h, mat) => {
-      const pivot = new THREE.Group();
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, w), mat);
-      m.position.y = -h / 2;
-      m.castShadow = true;
-      pivot.add(m);
-      return pivot;
+    // Materialien je Figur (Weste in Spielerfarbe, Stromschlag-Flackern)
+    const mats = {
+      vest: new THREE.MeshStandardMaterial({ map: this.tex.vest(color), roughness: 0.6 }),
+      pants: new THREE.MeshStandardMaterial({ color: 0x2b3442, roughness: 0.8 }),
+      skin: new THREE.MeshStandardMaterial({ color: 0xe0b48f, roughness: 0.7 }),
+      hat: new THREE.MeshStandardMaterial({ color: 0xf2c014, roughness: 0.4 }),
+      visor: new THREE.MeshStandardMaterial({ color: 0x111111 }),
+      belt: new THREE.MeshStandardMaterial({ color: 0x222222 }),
     };
-    const legL = limb(0.2, 0.75, dark); legL.position.set(-0.14, 0.75, 0);
-    const legR = limb(0.2, 0.75, dark); legR.position.set(0.14, 0.75, 0);
-    const armL = limb(0.15, 0.6, vestMat); armL.position.set(-0.36, 1.36, 0);
-    const armR = limb(0.15, 0.6, vestMat); armR.position.set(0.36, 1.36, 0);
-    // Gurt / Karabiner, an dem das Seil hängt
-    const belt = new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.04, 6, 16), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-    belt.rotation.x = Math.PI / 2; belt.position.y = 0.8;
-
-    for (const m of [torso, head, helmet, brim, visor, belt]) { m.castShadow = true; g.add(m); }
-    g.add(legL, legR, armL, armR);
-
+    const rig = new Rig(mats);
+    const g = rig.root;
     const tag = this.makeTag(name, color);
     tag.position.y = 2.25;
     g.add(tag);
 
     this.scene.add(g);
-    const av = { g, legL, legR, armL, armR, torso, tag, phase: 0, color };
+    const av = { g, rig, tag, color, mats };
     this.avatars.set(id, av);
     return av;
   }
@@ -715,41 +691,17 @@ export class Renderer {
     const av = this.avatars.get(id);
     if (!av) return;
     this.scene.remove(av.g);
+    for (const m of Object.values(av.mats)) { m.map?.dispose(); m.dispose(); }
     this.avatars.delete(id);
   }
 
-  updateAvatar(id, pos, vel, yaw, grounded, braced, dt, isLocal) {
+  // st: { pos, vel, yaw, grounded, braced, mode, hurt, grip, pull } – siehe anim.js
+  updateAvatar(id, st, dt, isLocal) {
     const av = this.avatars.get(id);
-    if (!av) return;
-    av.g.position.set(pos[0], pos[1], pos[2]);
-    // weiche Drehung
-    let dy = yaw - av.g.rotation.y;
-    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
-    av.g.rotation.y += dy * Math.min(1, dt * 12);
-    const speed = Math.hypot(vel[0], vel[2]);
-    if (grounded) {
-      av.phase += dt * speed * 2.2;
-      const s = Math.sin(av.phase) * Math.min(1, speed / 4) * 0.8;
-      av.legL.rotation.x = s; av.legR.rotation.x = -s;
-      av.armL.rotation.x = -s; av.armR.rotation.x = s;
-      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
-    } else if (braced) {
-      // hängt an Kante, Haken oder Leiter: Arme nach oben
-      av.phase += dt * 6;
-      av.armL.rotation.x = -2.9 + Math.sin(av.phase) * 0.15; av.armR.rotation.x = -2.9 - Math.sin(av.phase) * 0.15;
-      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
-      av.legL.rotation.x = 0.15 + Math.sin(av.phase * 0.5) * 0.2; av.legR.rotation.x = -0.1 - Math.sin(av.phase * 0.5) * 0.2;
-    } else {
-      av.legL.rotation.x = 0.5; av.legR.rotation.x = -0.3;
-      av.armL.rotation.z = -2.4; av.armR.rotation.z = 2.4;
-    }
-    if (braced && grounded) {
-      av.legL.rotation.x = -0.9; av.legR.rotation.x = 0.6;
-      av.armL.rotation.x = -1.2; av.armR.rotation.x = -1.2;
-      av.armL.rotation.z = 0; av.armR.rotation.z = 0;
-      av.torso.rotation.x = -0.25;
-    } else av.torso.rotation.x = 0;
+    if (!av) return null;
+    const ev = av.rig.update(st, dt);
     av.tag.visible = !isLocal;
+    return ev;
   }
 
   // ───────── Seile ─────────
