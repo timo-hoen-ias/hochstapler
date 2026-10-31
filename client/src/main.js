@@ -107,8 +107,10 @@ function start(solo, local = null) {
     // Auf Handys: Vollbild + Querformat, soweit der Browser es erlaubt
     document.documentElement.requestFullscreen?.().then(() => screen.orientation?.lock?.('landscape')).catch(() => {});
   }
+  const track = audio.newRun(); // jede Schicht ihr eigener Soundtrack (bei „Zufällig“)
   game = new Game(name, room, solo, local);
   window.__game = game;
+  game.toast(`♪ ${track.name}`);
   game.lock();
 }
 
@@ -399,6 +401,7 @@ class Game {
         this.setInputEnabled(!this.paused);
         this.toast(m.race ? `${m.by} startet die Revanche – auf die Plätze!` : `${m.by} startet eine neue Schicht`);
         audio.play('respawn');
+        this.toast(`♪ ${audio.newRun().name}`);
         break;
       case 'mode':
         this.applyMode(m);
@@ -572,6 +575,7 @@ class Game {
     document.addEventListener('visibilitychange', () => { if (document.hidden) this.pause(); });
     $('again').onclick = () => {
       audio.play('ui');
+      if (!this.net.online) this.toast(`♪ ${audio.newRun().name}`); // online kommt das „restart“ vom Raum zurück
       this.net.send({ t: 'restart' });
       this.startedAt = Date.now() + (this.net.online ? this.net.offset : 0);
       this.played = 0;

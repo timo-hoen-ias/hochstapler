@@ -8,19 +8,22 @@
 //   audio.setMuted(bool) / toggleMute() / muted
 //   audio.settings                      – Kopie aller Einstellungen
 //   audio.onChange(fn)                  – fn(settings) bei jeder Änderung; gibt Abmelde-Funktion zurück
+//   audio.tracks / getTrack() / setTrack(id|'random') / currentTrack
+//   audio.newRun()                      – zu Beginn jeder Schicht: wählt bei 'random' einen anderen Soundtrack
 //   audio.play(name, opts)              – Einzelklang, z. B. 'ui', 'uiBack', 'emote', 'join', 'finish' …
 //   audio.update(state)                 – einmal pro Frame aus der Spielschleife
 // Einstellungen werden in localStorage ('hochstapler.audio') gespeichert.
 
 import { makeNoise, makeIR, clamp, gain } from './synth.js';
 import { Sfx } from './sfx.js';
-import { Music } from './music.js';
+import { Music, TRACKS, trackById } from './music.js';
 import { Ambience } from './ambience.js';
 import { Machines } from './machines.js';
 
 const KEY = 'hochstapler.audio';
 export const BUSES = ['master', 'music', 'sfx', 'ambience'];
-const DEFAULTS = { master: 0.8, music: 0.55, sfx: 0.8, ambience: 0.7, muted: false };
+const DEFAULTS = { master: 0.8, music: 0.55, sfx: 0.8, ambience: 0.7, muted: false, track: 'random' };
+const LAST_TRACK = 'hochstapler.lastTrack';
 // Wie viel Hall jeder Abschnitt bekommt (große Hallen viel, Dach kaum)
 const REVERB = [0.32, 0.45, 0.38, 0.36, 0.16, 0.08];
 
@@ -30,6 +33,7 @@ function loadSettings() {
     const out = { ...DEFAULTS };
     for (const k of BUSES) if (typeof s[k] === 'number') out[k] = clamp(s[k]);
     if (typeof s.muted === 'boolean') out.muted = s.muted;
+    if (s.track === 'random' || trackById(s.track)) out.track = s.track;
     return out;
   } catch {
     return { ...DEFAULTS };
@@ -68,6 +72,49 @@ class AudioEngine {
   get settings() { return { ...this._s }; }
   get muted() { return this._s.muted; }
   get ready() { return !!this.ctx; }
+
+  // ───── Soundtracks ─────
+  // Liste für das Optionsmenü: [{ id, name, desc }]
+  get tracks() { return TRACKS.map(({ id, name, desc }) => ({ id, name, desc })); }
+  // Eingestellter Soundtrack: 'random' (jede Schicht ein anderer) oder eine Track-ID
+  getTrack() { return this._s.track; }
+  // Gerade laufender (bzw. für diese Schicht gewählter) Soundtrack
+  get currentTrack() {
+    const t = (this.music && this.music.playing) || trackById(this._runTrack) || TRACKS[0];
+    return { id: t.id, name: t.name, desc: t.desc };
+  }
+
+  setTrack(id) {
+    if (id !== 'random' && !trackById(id)) throw new Error('Unbekannter Soundtrack: ' + id);
+    this._s.track = id;
+    if (id !== 'random') this._playTrack(id);
+    this._changed();
+  }
+
+  // Neue Schicht/Run: bei 'random' einen anderen Soundtrack als zuletzt wählen.
+  // Gibt den gewählten Soundtrack zurück ({ id, name, desc }).
+  newRun() {
+    let id = this._s.track;
+    if (id === 'random') {
+      if (this._menuPick && !this._hadRun) id = this._menuPick; // läuft schon im Menü – behalten
+      else {
+        const last = this._runTrack || this._lastTrack();
+        const pool = TRACKS.filter((t) => t.id !== last);
+        id = pool[Math.floor(Math.random() * pool.length)].id;
+      }
+    }
+    this._hadRun = true;
+    this._playTrack(id);
+    try { localStorage.setItem(LAST_TRACK, id); } catch { /* egal */ }
+    return this.currentTrack;
+  }
+
+  _lastTrack() { try { return localStorage.getItem(LAST_TRACK); } catch { return null; } }
+
+  _playTrack(id) {
+    this._runTrack = id;
+    if (this.music) this.music.setTrack(id);
+  }
   getVolume(bus) { return this._s[bus]; }
 
   setVolume(bus, v) {
@@ -153,7 +200,14 @@ class AudioEngine {
     this.music = new Music(this);
     this.ambience = new Ambience(this);
     this.machines = null; // braucht die Spielwelt, kommt mit dem ersten update()
-    this.music.start(this.section);
+    if (!this._runTrack) {
+      // Menümusik: eingestellter Soundtrack bzw. zufällig ein anderer als beim letzten Mal
+      const last = this._lastTrack();
+      const pool = TRACKS.filter((t) => t.id !== last);
+      this._runTrack = this._s.track !== 'random' ? this._s.track : pool[Math.floor(Math.random() * pool.length)].id;
+      this._menuPick = this._runTrack;
+    }
+    this.music.start(this.section, this._runTrack);
     this.ambience.setSection(this.section);
   }
 
