@@ -8,7 +8,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeTextures, textCanvas } from './textures.js';
 import { settings, QUALITY, effectOn } from './settings.js';
 import { fogUniforms, patchFogMaterials, AtmosPass } from './fx.js';
-import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind } from './models.js';
+import { modelMaterials, buildShapes, buildLadders, buildHooks, updateHooks, forkliftGroup, buildScenery as buildYard, buildWind, buildPuzzles, updatePuzzles } from './models.js';
 
 const CONTAINER_COLORS = [0xc0392b, 0x2c6fb7, 0x2f8f57, 0xd9822b];
 
@@ -64,6 +64,7 @@ export class Renderer {
     this.hookLive = buildHooks(this.scene, level, this.mm);
     buildYard(this.scene, level, this.mm);
     this.windFx = buildWind(this.scene, level);
+    this.puzzles = buildPuzzles(this.scene, level, { ...this.mm, hazard: this.mats.hazard }, this.tex);
     this.buildMovers();
     this.buildDecor();
     this.buildSigns();
@@ -329,7 +330,7 @@ export class Renderer {
   buildStatics() {
     const groups = {};
     for (const b of this.level.statics) {
-      const key = b.belt || b.blink || b.big || b.ramp || b.round ? null : b.mat;
+      const key = b.belt || b.blink || b.big || b.ramp || b.round || b.gate ? null : b.mat;
       if (!key) continue;
       const scale = b.mat.startsWith('container') ? 2.4 : UV_SCALE[b.mat] ?? 1;
       (groups[key] ||= []).push(boxGeo(b.min, b.max, scale));
@@ -752,6 +753,7 @@ export class Renderer {
       if (sp.axis === 0) sp.g.rotation.x -= sp.w * dt; else sp.g.rotation.z += sp.w * dt;
     }
     updateHooks(this.hookLive, this.locals);
+    updatePuzzles(this.puzzles, dt);
     for (const w of this.windFx) {
       const f = colliders.gust(w.z);
       w.mat.opacity = 0.08 + 0.4 * f;

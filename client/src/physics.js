@@ -65,6 +65,13 @@ export class Colliders {
     this.hooks = level.hooks || [];
     this.ladders = level.ladders || [];
     for (const h of this.hooks) h.cur = [...h.pivot];
+    // Gefahren (Laser, Stacheln), Druckplatten und Rolltore
+    this.hazards = level.hazards || [];
+    for (const z of this.hazards) { z.cur = { min: [...z.min], max: [...z.max] }; z.active = true; z.warn = false; }
+    this.plates = level.plates || [];
+    for (const pl of this.plates) { pl.down = false; pl.hold = 0; pl.active = false; }
+    this.gates = level.statics.filter((b) => b.gate);
+    this.forceOpen = false; // Simulation: alle Rätsel gelöst
     this.big = level.statics.filter((s) => s.big);
     this.all = [...this.statics, ...this.moverBoxes];
     // Raumraster für statische Teile (Breitphase)
@@ -100,6 +107,22 @@ export class Colliders {
     for (const b of this.blinks) {
       b.state = blinkState(b, t);
       b.hidden = b.state === 0;
+    }
+    for (const z of this.hazards) {
+      let on = true;
+      z.warn = false;
+      if (z.timer) {
+        const u = (((t / z.timer.period) + z.timer.phase) % 1 + 1) % 1;
+        on = u < z.timer.on;
+        z.warn = !on && u > 1 - 0.18; // kurz vor dem Einschalten warnen
+        z.phaseU = u;
+      }
+      if (z.plate !== undefined) on = on && !(this.forceOpen || this.plates[z.plate]?.active || (z.plate2 !== undefined && this.plates[z.plate2]?.active));
+      z.active = on;
+      if (z.motion) {
+        moverOffset(z.motion, t, this.tmp);
+        for (let i = 0; i < 3; i++) { z.cur.min[i] = z.min[i] + this.tmp[i]; z.cur.max[i] = z.max[i] + this.tmp[i]; }
+      }
     }
     for (const h of this.hooks) {
       if (!h.motion) continue;
@@ -148,6 +171,24 @@ export class Colliders {
     if (!g) return 1;
     const u = (((this.t || 0) / g.period + g.phase) % 1 + 1) % 1;
     return 0.25 + 0.75 * Math.max(0, Math.sin(u * Math.PI * 2));
+  }
+
+  // Druckplatten: gedrückt, solange jemand darauf steht. latch = Nachlaufzeit
+  // (allein länger, damit Rätsel auch solo lösbar sind). points = Fußpunkte aller Spieler.
+  updatePlates(points, dt, latch = 1.2) {
+    for (const pl of this.plates) {
+      const down = points.some((p) => p[0] > pl.min[0] && p[0] < pl.max[0] && p[2] > pl.min[2] && p[2] < pl.max[2] && p[1] > pl.min[1] - 0.15 && p[1] < pl.min[1] + 0.4);
+      pl.down = down;
+      pl.hold = down ? latch : Math.max(0, pl.hold - dt);
+      pl.active = this.forceOpen || down || pl.hold > 0;
+    }
+    for (const g of this.gates) {
+      const open = this.forceOpen || g.gate.some((i) => this.plates[i]?.active);
+      if (open) { g.hidden = true; g.openT = Math.min(1, (g.openT || 0) + dt * 2.5); continue; }
+      // Nicht auf jemanden herunterfahren
+      const blocked = points.some((p) => p[0] > g.min[0] - 0.3 && p[0] < g.max[0] + 0.3 && p[2] > g.min[2] - 0.3 && p[2] < g.max[2] + 0.3 && p[1] + 1.8 > g.min[1] && p[1] < g.max[1]);
+      if (!blocked) { g.hidden = false; g.openT = Math.max(0, (g.openT || 0) - dt * 2.5); }
+    }
   }
 
   hookNear(hand, r) {
@@ -337,6 +378,32 @@ function stepLadder(body, input, cols, dt) {
 }
 
 // input: { x, z } gewünschte Laufrichtung (Welt, Länge ≤ 1), jump (gedrückt-Flanke), brace (gehalten)
+// Laser und Stacheln: Stromschlag mit Rückstoß, Griffe lösen sich – man fällt
+function checkHazards(body, world, dt) {
+  body.zapped = null;
+  if (body.hurt > 0) { body.hurt -= dt; return; }
+  const p = body.pos, h = PHYS.half;
+  for (const z of world.hazards) {
+    if (!z.active) continue;
+    const b = z.cur;
+    if (p[0] + h[0] < b.min[0] || p[0] - h[0] > b.max[0] || p[2] + h[2] < b.min[2] || p[2] - h[2] > b.max[2]) continue;
+    if (p[1] + 1.8 < b.min[1] || p[1] > b.max[1]) continue;
+    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2;
+    // weg von der Gefahr, quer zur dünnen Seite eines Lasers
+    let dx = p[0] - cx, dz = p[2] - cz;
+    if (z.kind === 'laser') { if (b.max[0] - b.min[0] < b.max[2] - b.min[2]) dz = 0; else dx = 0; }
+    if (Math.hypot(dx, dz) < 1e-3) { dx = -body.vel[0]; dz = -body.vel[2]; }
+    const l = Math.hypot(dx, dz) || 1;
+    releaseGrips(body);
+    body.gripCool = 0.7;
+    body.vel[0] = (dx / l) * 6; body.vel[2] = (dz / l) * 6; body.vel[1] = 6.5;
+    body.grounded = false; body.ground = null; body.coyote = 0;
+    body.hurt = 0.8;
+    body.zapped = z.kind;
+    return;
+  }
+}
+
 export function stepBody(body, input, world, dt) {
   const cols = world.near(body.pos, 3);
   body.jumped = false;
@@ -344,6 +411,7 @@ export function stepBody(body, input, world, dt) {
   body.climbed = false;
   body.gripCool = Math.max(0, (body.gripCool || 0) - dt);
   if (input.jump) body.jumpBuf = PHYS.jumpBuffer;
+  if (world.hazards.length) checkHazards(body, world, dt);
 
   // Festhalten an Kante, Haken oder Leiter
   if (body.hang || body.hook || body.ladder) {

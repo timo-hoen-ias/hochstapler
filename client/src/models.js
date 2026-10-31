@@ -415,3 +415,109 @@ export function buildWind(scene, level) {
   }
   return out;
 }
+
+// ───────── Laser, Stacheln, Druckplatten, Rolltore ─────────
+export function buildPuzzles(scene, level, M, tex) {
+  const live = { lasers: [], spikes: [], plates: [], gates: [] };
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xff2a1a, toneMapped: false });
+  const warnMat = new THREE.MeshBasicMaterial({ color: 0xff9a40, toneMapped: false, transparent: true, opacity: 0.5 });
+  const postMat = std({ color: 0x2a2d31, metalness: 0.6, roughness: 0.4 });
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0xff3020, toneMapped: false });
+  const spikeMat = std({ color: 0xb8bec4, metalness: 0.9, roughness: 0.25 });
+  const coneGeo = new THREE.ConeGeometry(0.11, 0.4, 6).translate(0, 0.2, 0);
+  for (const z of level.hazards) {
+    const g = new THREE.Group();
+    const w = [z.max[0] - z.min[0], z.max[1] - z.min[1], z.max[2] - z.min[2]];
+    if (z.kind === 'laser') {
+      const lat = w[0] > w[2] ? 0 : 2; // lange Seite
+      const beams = new THREE.Group(), warn = new THREE.Group();
+      for (let y = 0.15; y <= w[1] + 0.01; y += 0.35) {
+        const s = [0.03, 0.03, 0.03]; s[lat] = w[lat];
+        const geo = new THREE.BoxGeometry(...s);
+        const pos = [w[0] / 2, y, w[2] / 2];
+        const m = new THREE.Mesh(geo, beamMat); m.position.set(...pos); beams.add(m);
+        const m2 = new THREE.Mesh(geo, warnMat); m2.position.set(...pos); warn.add(m2);
+      }
+      g.add(beams, warn);
+      for (const e of [0, 1]) {
+        const p = [w[0] / 2, 0, w[2] / 2]; p[lat] = e * w[lat];
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, w[1] + 0.3, 0.16), postMat);
+        post.position.set(p[0], (w[1] + 0.3) / 2, p[2]);
+        post.castShadow = true;
+        g.add(post);
+        const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), lampMat);
+        lamp.position.set(p[0], w[1] + 0.35, p[2]);
+        g.add(lamp);
+      }
+      live.lasers.push({ z, g, beams, warn });
+    } else {
+      const nx = Math.max(1, Math.round(w[0] / 0.3)), nz = Math.max(1, Math.round(w[2] / 0.3));
+      const inst = new THREE.InstancedMesh(coneGeo, spikeMat, nx * nz);
+      const m4 = new THREE.Matrix4();
+      let i = 0;
+      for (let a = 0; a < nx; a++) for (let b = 0; b < nz; b++) {
+        m4.makeTranslation((a + 0.5) * w[0] / nx, 0, (b + 0.5) * w[2] / nz);
+        inst.setMatrixAt(i++, m4);
+      }
+      inst.castShadow = true;
+      g.add(inst);
+      // Warnstreifen am Rand
+      const base = new THREE.Mesh(new THREE.BoxGeometry(w[0], 0.03, w[2]), M.hazard || postMat);
+      base.position.set(w[0] / 2, 0.015, w[2] / 2);
+      g.add(base);
+      live.spikes.push({ z, g, inst });
+    }
+    g.position.set(...z.min);
+    scene.add(g);
+  }
+  for (const pl of level.plates) {
+    const w = pl.max[0] - pl.min[0], d = pl.max[2] - pl.min[2];
+    const mat = std({ map: tex.hazard, roughness: 0.6, emissive: 0x000000 });
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), mat);
+    m.position.set((pl.min[0] + pl.max[0]) / 2, pl.min[1] + 0.04, (pl.min[2] + pl.max[2]) / 2);
+    m.receiveShadow = true;
+    scene.add(m);
+    const ring = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, 0.03, d + 0.12), postMat);
+    ring.position.set(m.position.x, pl.min[1] + 0.015, m.position.z);
+    scene.add(ring);
+    live.plates.push({ pl, m, mat, y: m.position.y });
+  }
+  const doorMat = std({ map: tex.container, color: 0xa8b0b8, metalness: 0.5, roughness: 0.45 });
+  for (const b of level.statics) {
+    if (!b.gate) continue;
+    const w = [b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]];
+    const door = new THREE.Mesh(new THREE.BoxGeometry(w[0], w[1], w[2]).translate(0, -w[1] / 2, 0), doorMat);
+    door.position.set((b.min[0] + b.max[0]) / 2, b.max[1], (b.min[2] + b.max[2]) / 2);
+    door.castShadow = door.receiveShadow = true;
+    scene.add(door);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(w[0] + 0.2, 0.35, w[2] + 0.2), postMat);
+    head.position.set(door.position.x, b.max[1] + 0.17, door.position.z);
+    scene.add(head);
+    live.gates.push({ b, door });
+  }
+  return live;
+}
+
+export function updatePuzzles(live, dt) {
+  const blink = Math.sin(performance.now() / 70) > 0;
+  for (const o of live.lasers) {
+    const z = o.z;
+    o.g.position.set(...z.cur.min);
+    o.beams.visible = z.active;
+    o.warn.visible = !z.active && z.warn && blink;
+  }
+  for (const o of live.spikes) {
+    const z = o.z;
+    o.g.position.set(...z.cur.min);
+    const want = z.active ? 1 : z.warn ? 0.3 : 0.05;
+    o.inst.scale.y += (want - o.inst.scale.y) * Math.min(1, dt * 18);
+  }
+  for (const o of live.plates) {
+    o.m.position.y = o.y - (o.pl.down ? 0.04 : 0);
+    o.mat.emissive.setHex(o.pl.active ? 0x1f8a3a : 0x000000);
+  }
+  for (const o of live.gates) {
+    const t = o.b.openT || 0;
+    o.door.scale.y = Math.max(0.03, 1 - t);
+  }
+}

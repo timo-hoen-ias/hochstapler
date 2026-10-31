@@ -53,7 +53,7 @@ for (let i = 1; i < level.path.length; i++) {
   if (rise > lim.rise || gap > lim.gap) report(`Schritt ${i}: Anstieg ${rise.toFixed(2)} m, Lücke ${gap.toFixed(2)} m (${B.how || 'Sprung'})`);
 }
 
-const solids = level.statics.filter((s) => !s.big);
+const solids = level.statics.filter((s) => !s.big && !s.gate); // Rolltore öffnen sich
 // Raster für schnelle Paarsuche
 const cell = 6, grid = new Map();
 solids.forEach((s, i) => {

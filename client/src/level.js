@@ -92,6 +92,8 @@ export function buildLevel(opts = {}) {
   const ladders = [];
   const props = []; // Modelle ohne Kollision (Kulisse)
   const shortcuts = []; // Abkürzungen: [{ from, to, how }]
+  const hazards = []; // Laser und Stacheln
+  const plates = []; // Druckplatten
   const sections = [];
   const checkpoints = [];
 
@@ -402,6 +404,25 @@ export function buildLevel(opts = {}) {
   function wind(area, push, gust) {
     zones.push({ min: area.min, max: area.max, push, gust, lift: 0, sec });
   }
+  // Gefahrenbereich: kind = 'laser' | 'spikes'. timer { period, phase, on } = an im ersten Teil des Takts,
+  // plate = Druckplatte, die ihn abschaltet, motion = wandernder Laser { delta, period }
+  function hazard(kind, min, max, o = {}) {
+    const z = { kind, min, max, sec, ...o };
+    if (o.motion) z.motion = { kind: 'slide', phase: 0, ...o.motion };
+    hazards.push(z);
+    return z;
+  }
+  // Druckplatte auf der Oberseite von b (Mitte cx/cz, Größe s)
+  function plate(b, cx, cz, s = 1.1) {
+    const pl = { min: [cx - s / 2, b.max[1], cz - s / 2], max: [cx + s / 2, b.max[1] + 0.08, cz + s / 2], index: plates.length, sec };
+    plates.push(pl);
+    return pl.index;
+  }
+  // Rolltor (fest, solange keine der Platten gedrückt ist)
+  function gate(min, max, plateIds) {
+    const b = box(min, max, 'gate', { gate: plateIds, nogrip: true });
+    return b;
+  }
   function prop(type, pos, o = {}) { props.push({ type, pos, ...o, sec }); }
   function face(dir) { fwd = dirVec(dir); }
   function here() { return prev; }
@@ -445,7 +466,8 @@ export function buildLevel(opts = {}) {
   const landmarks = [];
   buildAct1({
     HANDMADE, section, step, mover, ramp, pipe, hook, ladderUp, wind, prop, deco, sign, markCheckpoint,
-    face, here, setPrev, shortcut, dirVec, landmarks,
+    face, here, setPrev, shortcut, dirVec, landmarks, hazard, plate, gate,
+    ladderOf: (b) => ladders.find((l) => path.some((p) => p.box === b && p.ladder === l)),
     pathLength: () => path.length, pathBoxes: (from) => path.slice(from).map((p) => p.box),
     get prev() { return prev; }, get fwd() { return fwd; },
   });
@@ -622,7 +644,7 @@ export function buildLevel(opts = {}) {
 
   return {
     statics, movers, decor, signs, zones, path, sections, checkpoints, goal, landmarks,
-    hooks, ladders, props, shortcuts,
+    hooks, ladders, props, shortcuts, hazards, plates,
     spawn: [START_X, 0.05, 8],
     killY: -20,
   };
