@@ -5,6 +5,7 @@ import { Renderer } from './render.js';
 import { Net } from './net.js';
 import { Input, PadInput, EMOTES, listPads, padClaims } from './input.js';
 import { Menu } from './menu.js';
+import { keysHtml, glyphify } from './glyphs.js';
 import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
@@ -23,6 +24,7 @@ function visYaw(b) {
 }
 
 const $ = (id) => document.getElementById(id);
+glyphify(); // Xbox-Tastensymbole in den statischen Hinweisen
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch { /* egal */ } },
@@ -905,7 +907,7 @@ class Game {
         if (lp.sprayT <= 0) { lp.sprayT = 0.16; audio.play('spray', { pos: lp === this.p1 ? undefined : b.pos }); }
       }
       if (b.steam) { lp.steamT = (lp.steamT || 0) - dt; if (lp.steamT <= 0) { lp.steamT = 0.3; audio.play('hiss', { d: 0.3 }); } }
-      if (b.swim && !lp.wasSwim && !lp.swimHinted && this.locals.length === 1) { lp.swimHinted = true; this.toast('Schwimmen: Festhalten (Shift) taucht, Springen hechtet hinaus'); }
+      if (b.swim && !lp.wasSwim && !lp.swimHinted && this.locals.length === 1) { lp.swimHinted = true; this.toast('Schwimmen: Festhalten (Shift) taucht, Springen hechtet hinaus', { keys: lp.pad !== undefined || lp.input?.device === 'pad' ? 'pad' : 'kbm' }); }
       lp.wasSwim = !!b.swim;
     }
     for (const r of this.remotes.values()) {
@@ -1264,10 +1266,12 @@ class Game {
     $('brace').classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
   }
 
-  toast(text) {
+  // opts.keys: Tastennamen im Text bei Controller-Bedienung als Xbox-Glyphen zeigen
+  toast(text, opts = {}) {
     const d = document.createElement('div');
     d.className = 'toast';
-    d.textContent = text;
+    if (opts.keys) d.innerHTML = keysHtml(text, opts.keys === true ? undefined : opts.keys === 'pad');
+    else d.textContent = text;
     $('toasts').appendChild(d);
     setTimeout(() => d.remove(), 3300);
   }

@@ -1,6 +1,7 @@
 // Bildschirmtastatur für Texteingaben per Controller (Name, Raumcode).
-// Öffnet sich mit Ⓐ auf einem Textfeld. Ⓐ Taste · Ⓧ löschen · Ⓨ Leerzeichen/Zufällig · Ⓑ schließen · Start fertig.
+// Öffnet sich mit A auf einem Textfeld. A Taste · X löschen · Y Leerzeichen/Zufällig · B schließen · Menü-Taste fertig.
 // Auch mit Maus/Touch bedienbar; echte Tastatur tippt weiterhin ins Feld.
+import { xb } from './glyphs.js';
 
 const LAYOUTS = {
   name: {
@@ -110,7 +111,7 @@ export class OnScreenKeyboard {
     this.keysEl.appendChild(r);
     this.el.querySelector('.osk-title').textContent = L.title;
     this.el.querySelector('.osk-hint').innerHTML =
-      `<span><b>A</b> Taste</span><span><b>X</b> Löschen</span><span><b>Y</b> ${L.yLabel}</span><span><b>B</b> Schließen</span><span><b>Start</b> Fertig</span>`;
+      `<span>${xb('A')} Taste</span><span>${xb('X')} Löschen</span><span>${xb('Y')} ${L.yLabel}</span><span>${xb('B')} Schließen</span><span>${xb('Menu')} Fertig</span>`;
   }
 
   refresh() {

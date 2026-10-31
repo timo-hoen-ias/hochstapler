@@ -46,6 +46,8 @@ export class Menu {
     this.returnFocus = [];
     this.osk = new OnScreenKeyboard({ random: () => this.h.randomRoom?.() || '', sfx });
     this.buildOptions();
+    // Controller angeschlossen: Hinweise sofort auf Xbox-Glyphen umstellen
+    addEventListener('gamepadconnected', () => { document.body.dataset.device = 'pad'; });
     // Maus übernimmt wieder: Controller-Fokusrahmen ausblenden
     addEventListener('pointerdown', (e) => {
       if (e.pointerType === 'mouse' && document.body.dataset.device === 'pad') document.body.dataset.device = 'kbm';
