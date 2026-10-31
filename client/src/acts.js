@@ -530,7 +530,9 @@ export function buildActs(k) {
         prop('rack', { from: [-W + 3, W - 2], to: [-W + 3, -W + 2], height: h, base: y0, frost: true });
         prop('panelwall', { a: [-W, -W], b: [W, -W] });
         prop('panelwall', { a: [-W, W], b: [-W, -W] });
-        for (let y = y0 + 6; y < y1; y += 9) prop('coolunit', { pos: [W - 3, y, -W + 6 + ((y * 7) % 30)] });
+        // Verdampfer hängen an einer dritten Paneelwand statt frei in der Luft
+        prop('panelwall', { a: [W, W], b: [W, -W] });
+        for (let y = y0 + 6; y < y1; y += 9) prop('coolunit', { pos: [W - 0.65, y, -W + 6 + ((y * 7) % 30)] });
         break;
       case 'parcelracks': // Paketregale und Wendelrutschen
         prop('rack', { from: [W - 3, -W + 2], to: [W - 3, W - 2], height: h, base: y0 });
