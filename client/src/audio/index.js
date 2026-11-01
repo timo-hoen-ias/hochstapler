@@ -292,7 +292,7 @@ class AudioEngine {
       }
       // Schritte
       const hs = Math.hypot(b.vel[0], b.vel[2]);
-      if (b.grounded && hs > 1.2 && !b.braced) {
+      if (b.grounded && hs > 1.2 && b.braced !== true) {
         this._stepAcc += s.dt * (0.9 + hs / 6 * 1.6);
         if (this._stepAcc > 0.62) { this._stepAcc = 0; this.play('step', { mat: b.ground && b.ground.mat, speed: hs }); }
       } else this._stepAcc = 0.45;

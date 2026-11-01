@@ -41,6 +41,11 @@ export const PHYS = {
   boostJump: 11.2,  // Räuberleiter: Sprung von den Händen eines festhaltenden Mitspielers
   boostReach: 0.85, // so nah muss der Helfer stehen (waagerecht)
   pullMax: 3.0,     // Hochziehen: Kante greifbar bis hierhin, wenn oben jemand festhält
+  // Am Seil hochziehen: festhalten und dabei laufen (meist rückwärts, weg von der Kante)
+  haulSpeed: 2.3,   // so schnell geht man beim Ziehen
+  haulWeight: 0.001, // Seilgewicht beim Ziehen: praktisch ein Anker (online laggt die Partnerposition,
+                     // sonst bremst das den Zieher), aber gegen einen Anker kommt man nicht an
+  haulClimb: 0.22,  // so lange hängt der Gezogene an der Kante, bevor er drüber gezogen wird
 };
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -376,6 +381,16 @@ function freeAt(p, cols) {
   return true;
 }
 
+// Von der Kante hoch auf die Plattform (Sprung oder vom Mitspieler am Seil drüber gezogen)
+function climbOver(body, cols) {
+  const g = body.hang, n = g.n;
+  const up = [body.pos[0] + n[0] * 0.55, g.top + EPS, body.pos[2] + n[1] * 0.55];
+  body.hang = null; body.jumpBuf = 0; body.braced = false;
+  if (freeAt(up, cols)) {
+    body.pos = up; body.grounded = true; body.ground = g.box; body.climbed = true;
+  } else { body.vel[1] = PHYS.jump * 0.6; body.gripCool = 0.3; }
+}
+
 // An einer Kante hängen: festhalten, Sprung = hochziehen, weg drücken = loslassen
 function stepHang(body, input, cols) {
   const g = body.hang;
@@ -383,14 +398,7 @@ function stepHang(body, input, cols) {
   body.braced = true;
   const n = g.n; // Richtung zur Wand
   const push = input.x * n[0] + input.z * n[1];
-  if (input.jump || body.jumpBuf > 0) {
-    const up = [body.pos[0] + n[0] * 0.55, g.top + EPS, body.pos[2] + n[1] * 0.55];
-    body.hang = null; body.jumpBuf = 0; body.braced = false;
-    if (freeAt(up, cols)) {
-      body.pos = up; body.grounded = true; body.ground = g.box; body.climbed = true;
-    } else { body.vel[1] = PHYS.jump * 0.6; body.gripCool = 0.3; }
-    return;
-  }
+  if (input.jump || body.jumpBuf > 0) { climbOver(body, cols); return; }
   if (push < -0.5) { body.hang = null; body.braced = false; body.gripCool = 0.4; }
 }
 
@@ -535,6 +543,7 @@ export function stepBody(body, input, world, dt) {
   body.climbed = false;
   body.shoved = false;
   body.gripCool = Math.max(0, (body.gripCool || 0) - dt);
+  body.hoisted = Math.max(0, (body.hoisted || 0) - dt);
   if (input.jump) body.jumpBuf = PHYS.jumpBuffer;
   if (world.hazards.length) checkHazards(body, world, dt);
   const water = preStep(body, world, dt);
@@ -578,14 +587,19 @@ export function stepBody(body, input, world, dt) {
   }
 
   body.braced = !!input.brace && body.grounded;
+  // Festhalten und laufen = am Seil ziehen: langsam, aber fast so fest wie ein Anker.
+  // braced = 2 geht so auch übers Netz (Seilgewicht beim Mitspieler).
+  const haul = body.braced && (input.x || input.z);
+  if (haul) body.braced = 2;
 
   // Horizontale Steuerung
   const g0 = body.grounded ? body.ground : null;
   const onIce = g0 && g0.ice;
   const onSlide = g0 && g0.ramp && g0.ramp.slide;
   const onRound = g0 && g0.round;
-  let wantX = body.braced ? 0 : input.x * PHYS.speed;
-  let wantZ = body.braced ? 0 : input.z * PHYS.speed;
+  const sp = haul ? PHYS.haulSpeed : body.braced ? 0 : PHYS.speed;
+  let wantX = input.x * sp;
+  let wantZ = input.z * sp;
   // Wind: Böen treiben den Spieler ab. Als Zielgeschwindigkeit eingerechnet, sonst hebt die
   // Laufsteuerung (70 m/s²) die Windkraft sofort wieder auf. Festhalten (Shift) schützt.
   const wind = world.zoneAt(body.pos, true);
@@ -632,7 +646,8 @@ export function stepBody(body, input, world, dt) {
     const lat = g0.round.axis === 0 ? 2 : 0;
     body.vel[lat] += Math.sign(d) * Math.min(1, Math.abs(d) / g0.round.r) * 11 * dt;
   }
-  if (input.x || input.z) body.yaw = Math.atan2(input.x, input.z);
+  // Beim Ziehen bleibt der Blick beim Seil (Seil-Kopplung dreht zum Partner)
+  if ((input.x || input.z) && !haul) body.yaw = Math.atan2(input.x, input.z);
 
   // Springen mit Coyote-Time und Eingabepuffer
   body.coyote = body.grounded ? PHYS.coyote : body.coyote - dt;
@@ -681,7 +696,8 @@ export function stepBody(body, input, world, dt) {
   if (hz) body.vel[2] = 0;
 
   // Bodenprüfung: knapp unter den Füßen (auf Schrägen und Rohren etwas tiefer, damit man haften bleibt)
-  if (!body.grounded && body.vel[1] <= 0) {
+  // (nicht, solange einen der Partner gerade am Seil hochzieht – sonst klebt man am Boden)
+  if (!body.grounded && body.vel[1] <= 0 && !body.hoisted) {
     const sticky = wasGround && (wasGround.ramp || wasGround.round) && !body.jumped;
     const pd = sticky ? 0.4 : 0.03;
     const y0 = body.pos[1];
@@ -731,6 +747,7 @@ export function stepBody(body, input, world, dt) {
 // am Boden = schwer, in der Luft = leicht. Gibt die Seilspannung (0..1+) zurück.
 export function ropeWeight(grounded, braced) {
   // festhalten am Boden, an einer Kante, am Haken oder auf der Leiter = Anker
+  if (braced === 2) return PHYS.haulWeight; // zieht gerade am Seil
   if (braced) return 0;
   if (grounded) return 0.3;
   return 1;
@@ -741,17 +758,27 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   const ax = body.pos[0], ay = body.pos[1] + 1.1, az = body.pos[2];
   const dx = partnerPos[0] - ax, dy = partnerPos[1] + 1.1 - ay, dz = partnerPos[2] - az;
   const dist = Math.hypot(dx, dy, dz);
-  if (dist <= L || dist < 1e-4) return dist / L;
+  if (dist < 1e-4) return 0;
+  const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+  // Wer festhält oder zieht, schaut zum Seil (beim Zurücklaufen: rückwärts)
+  if (body.braced && body.grounded && dist > L * 0.9) body.yaw = Math.atan2(nx, nz);
+  if (dist <= L) { if (body.hang) body.hang.tug = 0; return dist / L; }
+  // Hängt man an der Kante und der Partner oben zieht weiter: drüber gezogen werden
+  if (body.hang && partnerBraced === 2 && ny > 0) {
+    body.hang.tug = (body.hang.tug || 0) + dt;
+    if (body.hang.tug >= PHYS.haulClimb) { climbOver(body, world.near(body.pos, 3)); body.hauled = true; }
+    return dist / L;
+  }
   const wMe = ropeWeight(body.grounded, body.braced);
   const wP = ropeWeight(partnerGrounded, partnerBraced);
   if (wMe + wP === 0) return dist / L;
   const share = wMe / (wMe + wP);
   let corr = (dist - L) * share;
   corr = Math.min(corr, 0.9); // Netzwerk-Ruckler nicht als Teleport durchreichen
-  const nx = dx / dist, ny = dy / dist, nz = dz / dist;
   if (corr > 0) {
     const cols = world.near(body.pos, 3);
     if (moveAxis(body, 1, ny * corr, cols) && ny < 0) { body.grounded = true; }
+    else if (partnerBraced === 2 && ny > 0.35) { body.grounded = false; body.ground = null; body.hoisted = 0.1; }
     moveAxis(body, 0, nx * corr, cols);
     moveAxis(body, 2, nz * corr, cols);
     // Geschwindigkeitsanteil weg vom Partner entfernen (Seil ist straff)
@@ -763,6 +790,35 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
     if (body.grounded && !body.braced && share > 0) {
       body.dragged = 0.25;
     }
+    // Von oben am Seil hochgezogen: an der Wand die Kante greifen, sobald sie in Reichweite ist
+    if (partnerBraced && ny > 0.3 && !body.grounded && !body.hang && !body.hook && !body.ladder) hoistGrab(body, nx, nz, world);
   }
   return dist / L;
+}
+
+// Hochgezogen werden: steht man an einer Wand in Richtung Seil und ist deren Kante in
+// Griffhöhe, greift man sie (ohne zur Wand drücken zu müssen).
+function hoistGrab(body, nx, nz, world) {
+  if (body.gripCool > 0 || body.vel[1] >= 2) return;
+  const ax = Math.abs(nx) >= Math.abs(nz) ? 0 : 2;
+  const s = (ax === 0 ? nx : nz) > 0 ? 1 : -1;
+  const o = ax === 0 ? 2 : 0;
+  const p = body.pos, h = PHYS.half[0];
+  for (const b of world.near(p, 2)) {
+    if (b.mover || b.ramp || b.round || b.blink || b.nogrip) continue;
+    const rel = b.max[1] - p[1];
+    if (rel < PHYS.ledgeMin || rel > PHYS.ledgeMax) continue;
+    const gap = s > 0 ? b.min[ax] - (p[ax] + h) : (p[ax] - h) - b.max[ax];
+    if (gap < -0.05 || gap > 0.3) continue;
+    if (p[o] + h < b.min[o] || p[o] - h > b.max[o]) continue;
+    const n = ax === 0 ? [s, 0] : [0, s];
+    const up = [p[0] + n[0] * 0.55, b.max[1] + EPS, p[2] + n[1] * 0.55];
+    if (!freeAt(up, world.near(up, 2))) continue;
+    body.hang = { box: b, n, top: b.max[1], pulled: true, tug: 0 };
+    body.pos[1] = b.max[1] - PHYS.reach;
+    body.vel[0] = body.vel[1] = body.vel[2] = 0;
+    body.yaw = Math.atan2(n[0], n[1]);
+    body.braced = true;
+    return;
+  }
 }
