@@ -243,17 +243,19 @@ const POSE = {
   },
 
   // Festhalten am Boden: breiter Ausfallschritt, Seil vorm Bauch, nach hinten gelehnt
+  // Mit Laufen (c.haul): kurze Schritte rückwärts, Seil Hand über Hand – am Seil hochziehen.
   brace(o, c) {
-    const t = c.t;
-    o[K.ahx] = -0.75; o[K.akn] = 0.95;
-    o[K.bhx] = 0.55; o[K.bkn] = 0.25;
+    const t = c.t, h = c.haul || 0;
+    const s = Math.sin(c.phase), co = Math.cos(c.phase);
+    o[K.ahx] = lerp(-0.75, -0.25 - 0.5 * s, h); o[K.akn] = lerp(0.95, 0.55 + 0.6 * Math.max(0, co), h);
+    o[K.bhx] = lerp(0.55, 0.05 + 0.5 * s, h); o[K.bkn] = lerp(0.25, 0.55 + 0.6 * Math.max(0, -co), h);
     o[K.aab2] = 0.12; o[K.bab2] = 0.12;
     o[K.aft] = 0.1; o[K.bft] = -0.2;
     o[K.hy] = -0.2;
     o[K.sp] = -0.22 + Math.sin(t * 7) * 0.012;
     o[K.hp] = -0.05;
-    o[K.asx] = -0.95; o[K.bsx] = -0.7;
-    o[K.ael] = 1.25; o[K.bel] = 1.35;
+    o[K.asx] = -0.95 - 0.3 * h * s; o[K.bsx] = -0.7 + 0.3 * h * s;
+    o[K.ael] = 1.25 + 0.3 * h * co; o[K.bel] = 1.35 - 0.3 * h * co;
     o[K.aab] = -0.05; o[K.bab] = -0.1;
     o[K.np] = 0.12;
   },
@@ -512,7 +514,7 @@ export class Rig {
     this.swimPh += dt * lerp(2.6, 3.4, this.swimMove); // Phase aufsummieren: Tempowechsel ohne Sprung
     this.dive += ((s.swim && s.dive ? 1 : 0) - this.dive) * damp(5, dt);
     this.carry += ((s.carry ? 1 : 0) - this.carry) * damp(9, dt);
-    const ctx = { t: this.t, phase: this.phase, lphase: this.lphase, runW, vy: this.airVy, airT: this.airT, vf, vs,
+    const ctx = { t: this.t, phase: this.phase, haul: s.braced ? moveW : 0, lphase: this.lphase, runW, vy: this.airVy, airT: this.airT, vf, vs,
       lead: this.lead, pullT: this.pullT, hurtT: this.hurtT, swimMove: this.swimMove, dive: this.dive, swimPh: this.swimPh };
     const P = this.pose, T = this.tmp;
     P.fill(0);

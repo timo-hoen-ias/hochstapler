@@ -436,7 +436,7 @@ class Game {
     const r = {
       id: p.id, name: p.name, slot: p.slot, color: p.color, team: p.team ?? 0,
       target: s.p || [...this.level.spawn], rpos: s.p ? [...s.p] : [...this.level.spawn],
-      vel: s.v || [0, 0, 0], yaw: s.y || 0, grounded: s.g ?? true, braced: !!s.b, a: s.a, age: 0, maxY: 0,
+      vel: s.v || [0, 0, 0], yaw: s.y || 0, grounded: s.g ?? true, braced: s.b || false, a: s.a, age: 0, maxY: 0,
     };
     this.remotes.set(p.id, r);
     this.view.createAvatar(p.id, p.name, p.color);
@@ -767,6 +767,12 @@ class Game {
         if (b.justLanded) { evs[k].landed = true; evs[k].landSpeed = Math.max(evs[k].landSpeed, -vyBefore); }
       });
       this.ropeStep(step);
+      for (const lp of locals) {
+        if (!lp.body.hauled) continue;
+        lp.body.hauled = false;
+        audio.play('grip', { pos: lp.body.pos });
+        if (!this.haulTold) { this.haulTold = true; this.toast('Hochgezogen!'); }
+      }
     }
 
     locals.forEach((lp, k) => {
@@ -1275,7 +1281,9 @@ class Game {
     } else {
       $('hud-players').innerHTML = rows.map(row).join('');
     }
-    $('brace').classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
+    const br = $('brace'), hauling = this.locals.some((lp) => lp.body.braced === 2);
+    br.classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
+    if (br.dataset.haul !== String(hauling)) { br.dataset.haul = String(hauling); br.textContent = hauling ? 'ZIEHEN' : 'FESTGEHALTEN'; }
   }
 
   // opts.keys: Tastennamen im Text bei Controller-Bedienung als Xbox-Glyphen zeigen
