@@ -87,6 +87,9 @@ const scenes = {
       const y = Math.max(0, y0 + 5.5 * u - G * u * u / 2);
       return { pos: [0, y, z0 + u * 4], vel: [0, 5.5 - G * u, 4], yaw: 0, grounded: y <= 0, mode: y > 0 ? 1 : 0 };
     } },
+  ziehen: { label: 'Seil einholen (vorn) · rückwärts hochziehen (hinten)', len: 5, cam: [7.5, 1.7, -1], look: [-0.5, 0.9, -1],
+    state(t) { const k = t > 0.6 ? 1 : 0; return { pos: [0, 0, 0], vel: [0, 0, 0], yaw: 0.4, grounded: true, braced: k ? 3 : 1, mode: 0, rope: [0, -0.55, 1], pull: [0, -0.4 * k, 0.8 * k] }; },
+    state2(t) { const m = t > 0.6 && t < 4.4; return { pos: [0, 0, -((Math.min(Math.max(t - 0.6, 0), 3.8)) * 2.3) % 6 + 2], vel: [0, 0, m ? -2.3 : 0], yaw: 2.2, grounded: true, braced: m ? 2 : 1, mode: 0, rope: [0, -0.3, 1], pull: [0, -0.3, 0.9] }; } },
   seil: { label: 'Seilruck von rechts: links frei, rechts festhaltend', len: 4, cam: [-0.5, 2.0, 7], look: [-0.5, 1, 0],
     state(t) { const k = t > 1 && t < 3 ? 1 : 0; return { pos: [0, 0, 0], vel: [k ? 0.8 : 0, 0, 0], yaw: -Math.PI / 2, grounded: true, mode: 0, pull: [k, 0.15 * k, 0] }; },
     state2(t) { const k = t > 1 && t < 3 ? 1 : 0; return { pos: [0, 0, 0], vel: [0, 0, 0], yaw: Math.PI / 2, grounded: true, braced: t > 0.5, mode: 0, pull: [k, 0.1 * k, 0] }; } },
@@ -115,16 +118,25 @@ const rigs = [new Rig(mk('#e8562a'))];
 if (sc.state2) rigs.push(new Rig(mk('#2a8be8')));
 rigs.forEach((r, i) => { scene.add(r.root); r.root.traverse((o) => { if (o.isMesh) o.castShadow = true; }); });
 const st = [{}, {}];
+// Seil zeigen, wo die Szene eine Seilrichtung vorgibt
+const ropeLines = rigs.map(() => { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]), new THREE.LineBasicMaterial({ color: 0xd8b26a })); l.visible = false; scene.add(l); return l; });
 let t = 0;
 window.step = (dt) => {
   t += dt;
   const tt = t % sc.len;
   rigs.forEach((r, i) => {
     const s = (i ? sc.state2 : sc.state).call(sc, tt, st[i]);
-    s.braced = !!s.braced; s.hurt = !!s.hurt;
+    if (typeof s.braced !== 'number') s.braced = !!s.braced;
+    s.hurt = !!s.hurt;
+    if (s.gap === undefined) s.gap = s.pos[1] - (sc.top || 0);
     if (i === 1) s.pos = [s.pos[0] + 1.2, s.pos[1], s.pos[2]];
     if (i === 0 && sc.state2) s.pos = [s.pos[0] - 2.2, s.pos[1], s.pos[2]];
     r.update(s, dt);
+    const rl = ropeLines[i];
+    if (s.rope) {
+      const a = new THREE.Vector3(s.pos[0], s.pos[1] + 0.85, s.pos[2]), d = new THREE.Vector3(...s.rope).normalize();
+      rl.geometry.setFromPoints([a, a.clone().addScaledVector(d, 3)]); rl.visible = true;
+    }
     // Aufklatschen wie im Spiel: kurz platt, dann platzen
     const S = st[i];
     if (s.splat && S.hit) {

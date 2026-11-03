@@ -139,7 +139,7 @@ Ohne Server läuft das Spiel automatisch im Solo-Modus.
 
 Figuren-Animationen ansehen (ohne Spiel, mit `npm run dev`):
 `http://localhost:5173/anim-preview.html?s=kante` – weitere Szenen: `lauf`, `sprung`,
-`leiter`, `haken`, `seil`, `strom`, `klatsch`, `farbe`, `plattform`.
+`leiter`, `haken`, `seil`, `strom`, `klatsch`, `farbe`, `plattform`, `ziehen`.
 
 ## Figuren-Animation
 
@@ -152,7 +152,10 @@ bei hartem Aufprall Hand am Boden), Kante greifen und hängen, Hochziehen
 (Klimmzug → Knie auf die Kante → aufrichten; der Höhensprung der Physik wird optisch
 nachgezogen), Stufen ohne Ruckeln, Leiter, Kranhaken (Figur pendelt um die Hände),
 Seilruck (Oberkörper kippt weg, Arme greifen zum Seil; beim Festhalten dagegenlehnen)
-und Stromschlag (Zucken, Weste flackert). Die Physik bleibt unverändert.
+und Stromschlag (Zucken, Weste flackert). Beim Festhalten und Ziehen dreht sich die Figur zum Seil:
+Halten im Ausfallschritt, Einholen Hand über Hand (jeder Zug ruckt den Oberkörper zurück),
+Rückwärts-Hochziehen mit schweren Schritten rückwärts; geht das Seil nach unten, geht sie
+tiefer in die Hocke. Vor der Landung strecken sich die Beine dem Boden entgegen. Die Physik bleibt unverändert.
 Übers Netz geht nur ein Zahlencode für die Bewegungsart (`a`), der Rest kommt aus
 Position und Geschwindigkeit. `scripts/test-anim.mjs` (Teil von `npm run validate`)
 prüft, dass kein Gelenk zwischen zwei Frames springt.

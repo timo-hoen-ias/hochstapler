@@ -242,24 +242,58 @@ const POSE = {
     o[K.sy] = 0.06 * s;
   },
 
-  // Festhalten am Boden: breiter Ausfallschritt, Seil vorm Bauch, nach hinten gelehnt
-  // Mit Laufen (c.haul): kurze Schritte rückwärts, Seil Hand über Hand – am Seil hochziehen.
+  // Festhalten und Ziehen am Seil. Die Figur schaut dabei zum Seil (siehe faceYaw).
+  //  - Halten: Ausfallschritt, vordere Hand weit am Seil, hintere am Gurt, gegen den Zug gelehnt
+  //  - Rückwärts ziehen (c.haul): kurze, schwere Schritte rückwärts, Griff bleibt
+  //  - Einholen im Stand (c.reel): Hand über Hand, jeder Zug reißt den Oberkörper kurz zurück
+  // Geht das Seil nach unten (Partner hängt an der Kante), geht die Figur tiefer in die Hocke.
   brace(o, c) {
     const t = c.t, h = c.haul || 0, r = c.reel || 0;
+    const ten = c.tension || 0;
+    const down = clamp(-(c.ropeU || 0), -0.6, 1);
+    const dn = Math.max(0, down);
     const s = Math.sin(c.phase), co = Math.cos(c.phase);
-    o[K.ahx] = lerp(-0.75, -0.25 - 0.5 * s, h); o[K.akn] = lerp(0.95, 0.55 + 0.6 * Math.max(0, co), h);
-    o[K.bhx] = lerp(0.55, 0.05 + 0.5 * s, h); o[K.bkn] = lerp(0.25, 0.55 + 0.6 * Math.max(0, -co), h);
-    o[K.aab2] = 0.12; o[K.bab2] = 0.12;
-    o[K.aft] = 0.1; o[K.bft] = -0.2;
-    o[K.hy] = -0.2;
-    o[K.sp] = -0.22 + Math.sin(t * 7) * 0.012;
-    o[K.hp] = -0.05;
-    // Im Stand Seil einholen (c.reel): Hand über Hand, ohne Schritte
-    const rs = Math.sin(t * 9), rc = Math.cos(t * 9);
-    o[K.asx] = -0.95 - 0.3 * h * s - 0.45 * r * rs; o[K.bsx] = -0.7 + 0.3 * h * s + 0.45 * r * rs;
-    o[K.ael] = 1.25 + 0.3 * h * co + 0.35 * r * rc; o[K.bel] = 1.35 - 0.3 * h * co - 0.35 * r * rc;
-    o[K.aab] = -0.05; o[K.bab] = -0.1;
-    o[K.np] = 0.12;
+    // Beine: Ausfallschritt ↔ Schritte rückwärts (Phase läuft dabei rückwärts)
+    o[K.ahx] = lerp(-0.72, -0.4 - 0.36 * s, h); o[K.akn] = lerp(0.85 + 0.3 * dn, 0.75 + 0.5 * Math.max(0, co), h);
+    o[K.bhx] = lerp(0.48, -0.1 + 0.36 * s, h); o[K.bkn] = lerp(0.3 + 0.2 * dn, 0.75 + 0.5 * Math.max(0, -co), h);
+    o[K.aab2] = 0.15; o[K.bab2] = 0.15;
+    o[K.aft] = lerp(0.15, 0.05, h); o[K.bft] = lerp(-0.3, 0.05, h);   // hinterer Fuß stemmt sich auf den Ballen
+    o[K.hy] = -0.15 - 0.1 * ten - 0.16 * dn - 0.05 * h + 0.025 * h * Math.abs(co);
+    o[K.hz] = -0.05 - 0.07 * ten;
+    // Oberkörper gegen den Zug, beim Ziehen kurz zittrig vor Anstrengung
+    const lean = 0.12 + 0.22 * ten + 0.12 * dn;
+    o[K.hp] = -0.45 * lean;
+    o[K.sp] = -0.55 * lean + 0.12 * dn + Math.sin(t * 29) * 0.012 * ten;
+    o[K.np] = 0.1 + 0.45 * dn;                        // dem Seil nach unten schauen
+    // Arme: Schulterwinkel zum Seil (vor dem Bauch, nach unten tiefer, nach oben höher)
+    const aim = -0.85 + 0.45 * down;
+    // Halten: vorn gestreckt am Seil, hinten am Gurt
+    let asx = aim - 0.2, ael = 0.3, aab = -0.08;
+    let bsx = -0.3, bel = 1.55, bab = 0.12;
+    // Einholen: zwei Hände im Wechsel – Zug von vorn zur Hüfte, dann über die andere Hand wieder nach vorn
+    if (r > 0.01) {
+      const hand = (u) => {
+        if (u < 0.55) {
+          const k = sstep(0, 1, u / 0.55);
+          return [lerp(aim - 0.3, 0.2, k), lerp(0.2, 1.55, k), lerp(-0.08, 0.22, k)];
+        }
+        const k = sstep(0, 1, (u - 0.55) / 0.45), arc = Math.sin(Math.PI * k);
+        return [lerp(0.2, aim - 0.3, k) - 0.25 * arc, lerp(1.55, 0.2, k) + 0.5 * arc, lerp(0.22, -0.08, k) + 0.25 * arc];
+      };
+      const ua = (c.reelPh / (Math.PI * 2)) % 1, ub = (ua + 0.5) % 1;
+      const A = hand(ua), B = hand(ub);
+      asx = lerp(asx, A[0], r); ael = lerp(ael, A[1], r); aab = lerp(aab, A[2], r);
+      bsx = lerp(bsx, B[0], r); bel = lerp(bel, B[1], r); bab = lerp(bab, B[2], r);
+      // jeder Zug: Schultern drehen zur ziehenden Hand, Oberkörper ruckt zurück
+      o[K.sy] = 0.2 * r * Math.sin(c.reelPh);
+      o[K.sp] -= 0.07 * r * Math.max(0, Math.cos(c.reelPh * 2));
+      o[K.hy] -= 0.02 * r * Math.max(0, Math.cos(c.reelPh * 2));
+    }
+    // Rückwärts ziehen: Griff bleibt, Körper wiegt mit den Schritten
+    asx += 0.08 * h * s; bsx -= 0.08 * h * s;
+    o[K.sr] = 0.05 * h * co;
+    o[K.asx] = asx; o[K.ael] = ael; o[K.aab] = aab;
+    o[K.bsx] = bsx; o[K.bel] = bel; o[K.bab] = bab;
   },
 
   // Hochziehen über eine Kante oder vom Leiterende: Klimmzug → Knie auf die
@@ -401,11 +435,13 @@ export class Rig {
     this.velPrev = [0, 0]; this.accF = 0; this.accS = 0;
     this.off = new THREE.Vector3(); this.stepOff = 0; this.stepT = 9; this.offStart = new THREE.Vector3(); this.offT = 9;
     this.swimMove = 0; this.swimPh = 0; this.dive = 0; this.carry = 0;
+    this.ropeFace = 0; this.ropeYaw = undefined; this.ropeU = 0; this.haulW = 0; this.reelPh = 0; this.prevSp = 0; this.pushT = 9;
     this.tilt = new THREE.Euler(); this.pullS = 0; this.pullF = 0; this.pullSide = 0; this.pullUp = 0;
     this.events = { jumped: false, landed: 0, pulled: false };
   }
 
-  // s: { pos, vel, yaw, grounded, braced, mode, hurt, grip?, pull?, swim?, dive?, carry? }
+  // s: { pos, vel, yaw, grounded, braced, mode, hurt, grip?, pull?, rope?, gap?, swim?, dive?, carry? }
+  //   rope = Richtung zum Seil (Welt, auch wenn es locker ist), gap = Abstand der Füße zum Boden darunter
   update(s, dt) {
     const ev = this.events; ev.jumped = false; ev.landed = 0; ev.pulled = false;
     dt = Math.min(dt, 0.1);
@@ -430,7 +466,12 @@ export class Rig {
     // Sprung erkannt
     if (mode === MODE.AIR && prevMode !== MODE.AIR) {
       this.minVy = vel[1];
-      if (vel[1] > 2.5) { this.lead = -this.lead; ev.jumped = true; }
+      if (vel[1] > 2.5) {
+        // Schwungbein = das Bein, das gerade nach vorn schwingt; aus dem Stand abwechselnd
+        this.lead = this.prevSp > 1.2 ? (Math.cos(this.phase) > 0 ? 1 : -1) : -this.lead;
+        this.pushT = 0;
+        ev.jumped = true;
+      }
     }
     if (mode === MODE.AIR) { this.minVy = Math.min(this.minVy, vel[1]); this.airVy = vel[1]; }
     // Landung: Feder je nach Aufprall
@@ -465,7 +506,19 @@ export class Rig {
 
     // ── Laufen ──
     const sp = Math.hypot(vel[0], vel[2]);
-    const yaw = s.yaw;
+    // Festhalten/Ziehen: optisch zum Seil drehen (die Blickrichtung der Physik bleibt)
+    const rope = s.rope;
+    const ropeH = rope ? Math.hypot(rope[0], rope[2]) : 0;
+    if (ropeH > 0.25) this.ropeYaw = Math.atan2(rope[0], rope[2]);
+    const wantFace = s.braced && mode === MODE.GROUND && this.ropeYaw !== undefined && ropeH > 0.25 ? 1 : 0;
+    this.ropeFace += (wantFace - this.ropeFace) * damp(7, dt);
+    this.ropeU += ((rope ? clamp(rope[1] / (Math.hypot(rope[0], rope[1], rope[2]) || 1), -1, 1) : 0) - this.ropeU) * damp(6, dt);
+    let yaw = s.yaw;
+    if (this.ropeFace > 0.005) {
+      let d = this.ropeYaw - yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      yaw += d * this.ropeFace;
+    }
+    this.faceYaw = yaw;
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
     const vf = vel[0] * sy + vel[2] * cy, vs = vel[0] * cy - vel[2] * sy;
     // Beschleunigung und Drehrate für die Neigung
@@ -481,7 +534,10 @@ export class Rig {
     this.velPrev[0] = vf; this.velPrev[1] = vs; this.yawPrev = yaw;
     const runW = sstep(2.6, 5.4, sp);
     const cycle = lerp(1.5, 2.8, runW);
-    if (mode === MODE.GROUND) this.phase += (Math.PI * 2 * sp * dt) / cycle;
+    // Rückwärts gehen (z. B. beim Ziehen): die Schritte laufen rückwärts, kürzer
+    const back = vf < -0.35 * sp && sp > 0.3;
+    if (mode === MODE.GROUND) this.phase += ((back ? -1 : 1) * Math.PI * 2 * sp * dt) / (back ? cycle * 0.75 : cycle);
+    this.prevSp = sp;
     if (mode === MODE.LADDER) this.lphase += (Math.abs(this.vyM) * dt / 0.55) * Math.PI;
 
     // ── Gewichte ──
@@ -517,7 +573,10 @@ export class Rig {
     this.dive += ((s.swim && s.dive ? 1 : 0) - this.dive) * damp(5, dt);
     this.carry += ((s.carry ? 1 : 0) - this.carry) * damp(9, dt);
     this.reelW = (this.reelW || 0) + ((s.braced === 3 ? 1 : 0) - (this.reelW || 0)) * damp(10, dt);
-    const ctx = { t: this.t, phase: this.phase, haul: s.braced ? moveW : 0, reel: this.reelW, lphase: this.lphase, runW, vy: this.airVy, airT: this.airT, vf, vs,
+    this.haulW += ((s.braced === 2 || (s.braced && moveW > 0.5) ? moveW : 0) - this.haulW) * damp(10, dt);
+    // Hand über Hand: ~1,6 Züge pro Sekunde und Hand, passend zum Einholtempo
+    if (this.reelW > 0.01) this.reelPh += dt * 10 * this.reelW;
+    const ctx = { t: this.t, phase: this.phase, haul: this.haulW, reel: this.reelW, reelPh: this.reelPh, tension: this.pullS, ropeU: this.ropeU, lphase: this.lphase, runW, vy: this.airVy, airT: this.airT, vf, vs,
       lead: this.lead, pullT: this.pullT, hurtT: this.hurtT, swimMove: this.swimMove, dive: this.dive, swimPh: this.swimPh };
     const P = this.pose, T = this.tmp;
     P.fill(0);
@@ -556,6 +615,25 @@ export class Rig {
       const front = Math.sin(this.phase) > 0;
       P[front ? K.ahx : K.bhx] -= 0.45 * k; P[front ? K.akn : K.bkn] += 0.7 * k;
       P[K.sp] += 0.12 * k;
+    }
+    // Absprung: das Sprungbein streckt sich durch, Fußspitzen zeigen nach unten
+    this.pushT += dt;
+    const aw = this.w.air / sum;
+    if (this.pushT < 0.18 && aw > 0.01) {
+      const k = (1 - this.pushT / 0.18) * aw;
+      const [tk, tf] = this.lead > 0 ? [K.bkn, K.bft] : [K.akn, K.aft];
+      P[tk] *= 1 - 0.75 * k; P[tf] += 0.6 * k;
+      P[K.hy] += 0.05 * k;
+    }
+    // Kurz vor der Landung: Beine strecken sich dem Boden entgegen, Arme gehen zum Ausbalancieren raus
+    if (mode === MODE.AIR && vel[1] < -1 && s.gap !== undefined && s.gap < 1.6 && aw > 0.01) {
+      const k = (1 - clamp(s.gap / 1.6, 0, 1)) * aw * sstep(-1, -4, vel[1]);
+      P[K.ahx] = lerp(P[K.ahx], -0.3, k); P[K.bhx] = lerp(P[K.bhx], -0.15, k);
+      P[K.akn] = lerp(P[K.akn], 0.35, k); P[K.bkn] = lerp(P[K.bkn], 0.4, k);
+      P[K.aab2] = lerp(P[K.aab2], 0.14, k); P[K.bab2] = lerp(P[K.bab2], 0.14, k);
+      P[K.aft] = lerp(P[K.aft], 0.15, k); P[K.bft] = lerp(P[K.bft], 0.15, k);
+      P[K.aab] += 0.35 * k; P[K.bab] += 0.35 * k;
+      P[K.np] += 0.2 * k;
     }
     // Neigung: in Laufrichtung beim Beschleunigen, in die Kurve beim Drehen
     const lw = (this.w.loco + this.w.idle) / sum;
@@ -620,7 +698,7 @@ export class Rig {
     this.stepOff *= Math.exp(-dt * 20);
     r.position.set(s.pos[0] + this.off.x, s.pos[1] + this.off.y + this.stepOff, s.pos[2] + this.off.z);
     // weiche Drehung (Haken/Leiter/Stromschlag schneller)
-    let dy = s.yaw - r.rotation.y;
+    let dy = (this.faceYaw ?? s.yaw) - r.rotation.y;
     dy = Math.atan2(Math.sin(dy), Math.cos(dy));
     r.rotation.y += dy * damp(12, dt);
 
