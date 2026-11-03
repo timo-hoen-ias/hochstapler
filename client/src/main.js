@@ -1075,6 +1075,9 @@ class Game {
         if (j < 0 || j >= chain.length) continue;
         const n = chain[j];
         if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0 || n.remote?.slack > 0) continue; // aufgeklatscht, Freiflug oder Respawn unterwegs: Seil ist ab
+        // Fallen beide frei, hält das Seil niemanden: keine Kräfte (kein Umeinanderdrehen, kein Bremsen)
+        const nf = n.local ? n.local.body : { grounded: n.remote.grounded, braced: n.remote.braced, vel: n.remote.vel, swim: !!(n.remote.a & 32) };
+        if (freeFalling(body) && freeFalling(nf)) continue;
         const wrap = wraps.get(c.id)?.get(n.id) || null;
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
         if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt, wrap));

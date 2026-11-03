@@ -1,6 +1,6 @@
 // Seil als Partikelkette: legt sich über Kanten und um Säulen, steckt nicht in Boxen,
 // und das Hochziehen am Seil klappt auch mit Umlenkung über die Kante.
-import { Colliders, createBody, stepBody, applyRope, PHYS } from '../client/src/physics.js';
+import { Colliders, createBody, stepBody, applyRope, freeFalling, PHYS } from '../client/src/physics.js';
 import { RopeChain, ROPE } from '../client/src/rope.js';
 
 const mk = (statics) => { const w = new Colliders({ statics, movers: [], hooks: [], ladders: [], zones: [], hazards: [], plates: [] }); w.update(0); return w; };
@@ -111,6 +111,46 @@ function pillar(useWrap) {
   for (let s = 0; s < 60; s++) rc.step([0, 0.85, 0], [2, 0.85, 0], w, dt);
   rc.step([10, 5.85, 0], [12, 5.85, 0], w, dt);
   want(rc.age < 0.02 && rc.wrapFor(0) === null, 'Nach Teleport: neue Kette, erst gerade Linie');
+}
+
+// Gemeinsamer freier Fall: das Seil bremst nicht und dreht niemanden umeinander
+function fall(rope) {
+  const w = mk([{ min: [-40, -1, -40], max: [40, 0, 40], mat: 'concrete' }]);
+  const a = createBody([0, 30, 0]), b = createBody([3.2, 33, 0.8]);
+  a.vel = [1.5, 0, 0]; b.vel = [-2, 1, 0]; // gegeneinander, damit sie sich ohne Regel umeinander drehen
+  let t = 0, swap = 0;
+  const above0 = b.pos[1] > a.pos[1];
+  while (t < 5 && !(a.grounded && b.grounded)) {
+    stepBody(a, { x: 0, z: 0, jump: false, brace: false }, w, dt);
+    stepBody(b, { x: 0, z: 0, jump: false, brace: false }, w, dt);
+    if (rope && !(freeFalling(a) && freeFalling(b))) {
+      applyRope(a, b.pos, b.grounded, b.braced, w, dt);
+      applyRope(b, a.pos, a.grounded, a.braced, w, dt);
+    }
+    if ((b.pos[1] > a.pos[1]) !== above0 && !a.grounded && !b.grounded) swap = 1;
+    t += dt;
+  }
+  return { t, swap, gap: Math.hypot(a.pos[0] - b.pos[0], a.pos[2] - b.pos[2]) };
+}
+{
+  const free = fall(false), tied = fall(true);
+  console.log(`Seil im freien Fall: ohne Seil ${free.t.toFixed(2)} s, am Seil ${tied.t.toFixed(2)} s bis beide unten sind`);
+  want(Math.abs(tied.t - free.t) < 0.05, 'Gemeinsam fallen: das Seil bremst den Fall nicht');
+  want(!tied.swap, 'Gemeinsam fallen: niemand dreht sich über den anderen');
+  // Steht einer, fängt das Seil den Fallenden weiterhin auf
+  const w = mk([{ min: [-40, -1, -40], max: [40, 0, 40], mat: 'concrete' }, { min: [-2, 0, -2], max: [1, 10, 2], mat: 'concrete' }]);
+  const top = createBody([0, 10, 0]); top.grounded = true; top.ground = w.statics[1];
+  const low = createBody([1.6, 10, 0]);
+  for (let s = 0; s < 240; s++) {
+    stepBody(top, { x: 0, z: 0, jump: false, brace: true }, w, dt);
+    stepBody(low, { x: 0, z: 0, jump: false, brace: false }, w, dt);
+    if (!(freeFalling(top) && freeFalling(low))) {
+      applyRope(top, low.pos, low.grounded, low.braced, w, dt);
+      applyRope(low, top.pos, top.grounded, top.braced, w, dt);
+    }
+  }
+  console.log(`Seil fängt: Fallender hängt bei ${low.pos[1].toFixed(2)} m unter dem Festhaltenden (oben ${top.pos[1].toFixed(2)} m)`);
+  want(low.pos[1] > 10 - PHYS.rope - 0.2 && top.pos[1] > 9.9, 'Wer festhält, fängt den Fallenden weiter auf');
 }
 
 // Laufzeit: eine Kette in einem vollen Level
