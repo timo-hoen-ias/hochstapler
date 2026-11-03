@@ -46,6 +46,9 @@ export const PHYS = {
   haulWeight: 0.001, // Seilgewicht beim Ziehen: praktisch ein Anker (online laggt die Partnerposition,
                      // sonst bremst das den Zieher), aber gegen einen Anker kommt man nicht an
   haulClimb: 0.22,  // so lange hängt der Gezogene an der Kante, bevor er drüber gezogen wird
+  // Seil einholen: im Stand festhalten, während der Partner unter einem hängt oder unten steht
+  reelSpeed: 1.7,   // so schnell holt man das Seil Hand über Hand ein (m/s)
+  reelMin: 1.5,     // kürzer wird das Seil dabei nicht
 };
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -591,6 +594,10 @@ export function stepBody(body, input, world, dt) {
   // braced = 2 geht so auch übers Netz (Seilgewicht beim Mitspieler).
   const haul = body.braced && (input.x || input.z);
   if (haul) body.braced = 2;
+  // Im Stand festhalten und das Seil ist straff: Seil einholen (braced = 3).
+  // Das merkt die Seil-Kopplung (body.reel) einen Schritt vorher.
+  body.reel = body.braced ? Math.max(0, (body.reel || 0) - dt) : 0;
+  if (body.braced === true && body.reel > 0) body.braced = 3;
 
   // Horizontale Steuerung
   const g0 = body.grounded ? body.ground : null;
@@ -747,14 +754,14 @@ export function stepBody(body, input, world, dt) {
 // am Boden = schwer, in der Luft = leicht. Gibt die Seilspannung (0..1+) zurück.
 export function ropeWeight(grounded, braced) {
   // festhalten am Boden, an einer Kante, am Haken oder auf der Leiter = Anker
-  if (braced === 2) return PHYS.haulWeight; // zieht gerade am Seil
+  if (braced === 2) return PHYS.haulWeight; // zieht gerade am Seil (beim Einholen = 3: Anker)
   if (braced) return 0;
   if (grounded) return 0.3;
   return 1;
 }
 
 export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt) {
-  const L = PHYS.rope;
+  let L = PHYS.rope;
   const ax = body.pos[0], ay = body.pos[1] + 1.1, az = body.pos[2];
   const dx = partnerPos[0] - ax, dy = partnerPos[1] + 1.1 - ay, dz = partnerPos[2] - az;
   const dist = Math.hypot(dx, dy, dz);
@@ -762,9 +769,16 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   const nx = dx / dist, ny = dy / dist, nz = dz / dist;
   // Wer festhält oder zieht, schaut zum Seil (beim Zurücklaufen: rückwärts)
   if (body.braced && body.grounded && dist > L * 0.9) body.yaw = Math.atan2(nx, nz);
-  if (dist <= L) { if (body.hang) body.hang.tug = 0; return dist / L; }
+  // Festhalten im Stand (nicht an Kante, Haken oder Leiter): aktiv am Seil ziehen, es Hand
+  // über Hand einholen. Beginnt, sobald das Seil fast straff ist.
+  if (body.braced && body.braced !== 2 && body.grounded && !body.hang && !body.hook && !body.ladder
+    && dist > PHYS.reelMin && (dist > L * 0.95 || body.reel > 0)) body.reel = 0.15;
+  // Holt der Partner das Seil ein, wird es für einen selbst kürzer
+  const reeled = partnerBraced === 3;
+  if (reeled) L = Math.max(PHYS.reelMin, Math.min(L, dist - PHYS.reelSpeed * dt));
+  if (dist <= L) { if (body.hang) body.hang.tug = 0; return dist / PHYS.rope; }
   // Hängt man an der Kante und der Partner oben zieht weiter: drüber gezogen werden
-  if (body.hang && partnerBraced === 2 && ny > 0) {
+  if (body.hang && (partnerBraced === 2 || partnerBraced === 3) && ny > 0) {
     body.hang.tug = (body.hang.tug || 0) + dt;
     if (body.hang.tug >= PHYS.haulClimb) { climbOver(body, world.near(body.pos, 3)); body.hauled = true; }
     return dist / L;
@@ -778,7 +792,7 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   if (corr > 0) {
     const cols = world.near(body.pos, 3);
     if (moveAxis(body, 1, ny * corr, cols) && ny < 0) { body.grounded = true; }
-    else if (partnerBraced === 2 && ny > 0.35) { body.grounded = false; body.ground = null; body.hoisted = 0.1; }
+    else if ((partnerBraced === 2 || reeled) && ny > 0.35) { body.grounded = false; body.ground = null; body.hoisted = 0.1; }
     moveAxis(body, 0, nx * corr, cols);
     moveAxis(body, 2, nz * corr, cols);
     // Geschwindigkeitsanteil weg vom Partner entfernen (Seil ist straff)
