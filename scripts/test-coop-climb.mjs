@@ -23,7 +23,7 @@ export function climbs(H, { boost = false, pull = false } = {}) {
 // Gibt die Zeit zurück, bis der Gezogene oben steht (oder null).
 // dangle: der Gezogene hängt frei unter der Kante (kein Boden darunter).
 // anchor: der Untere hält selbst fest – dann geht es nicht weiter.
-export function haul(H, { dangle = false, anchor = false, brace = true, seconds = 10 } = {}) {
+export function haul(H, { dangle = false, anchor = false, brace = true, reel = false, seconds = 10 } = {}) {
   const statics = [{ min: [1, -30, -3], max: [8, H, 3], mat: 'concrete' }];
   if (!dangle) statics.push({ min: [-20, -1, -20], max: [1, 0, 20], mat: 'concrete' });
   const level = { statics, movers: [], hooks: [], ladders: [], zones: [], hazards: [], plates: [] };
@@ -35,7 +35,7 @@ export function haul(H, { dangle = false, anchor = false, brace = true, seconds 
   let maxDist = 0;
   for (let s = 0; s < seconds * 120; s++) {
     const t = s * dt;
-    const walk = t > 0.8 ? 1 : 0; // erst festhalten, dann zurücklaufen
+    const walk = t > 0.8 && !reel ? 1 : 0; // erst festhalten, dann zurücklaufen (beim Einholen: stehen bleiben)
     stepBody(top, { x: walk, z: 0, jump: false, brace }, w, dt);
     stepBody(low, { x: 0, z: 0, jump: false, brace: anchor }, w, dt);
     applyRope(top, low.pos, low.grounded, low.braced, w, dt);
@@ -67,6 +67,27 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const d = haul(H, { dangle: true });
     console.log(`Frei hängend hochziehen (${H} m): ${d.t ? d.t.toFixed(2) + ' s' : 'geht nicht'}`);
     want(d.t && d.t < 6, `Frei hängenden Partner hochziehen (${H} m)`);
+  }
+  for (const [H, dangle] of [[4.3, false], [5, true], [8, true]]) {
+    const r = haul(H, { reel: true, dangle });
+    console.log(`Seil einholen (nur Festhalten), ${dangle ? 'frei hängend' : 'Wand'} ${H} m: ${r.t ? r.t.toFixed(2) + ' s' : 'geht nicht'}`);
+    want(r.t && r.t < 6 && r.top.pos[0] < 1.7, `Im Stand festhalten holt den Partner hoch (${H} m)`);
+  }
+  {
+    // Gleiche Ebene: Festhalten holt den Partner am Seil heran
+    const level = { statics: [{ min: [-20, -1, -20], max: [20, 0, 20], mat: 'concrete' }], movers: [], hooks: [], ladders: [], zones: [], hazards: [], plates: [] };
+    const w = new Colliders(level); w.update(0);
+    const a1 = createBody([0, 0, 0]), b1 = createBody([4.45, 0, 0]);
+    for (const x of [a1, b1]) { x.grounded = true; x.ground = level.statics[0]; }
+    for (let s = 0; s < 360; s++) {
+      stepBody(a1, { x: 0, z: 0, jump: false, brace: true }, w, 1 / 120);
+      stepBody(b1, { x: 0, z: 0, jump: false, brace: false }, w, 1 / 120);
+      applyRope(a1, b1.pos, b1.grounded, b1.braced, w, 1 / 120);
+      applyRope(b1, a1.pos, a1.grounded, a1.braced, w, 1 / 120);
+    }
+    const d = Math.hypot(b1.pos[0] - a1.pos[0], b1.pos[2] - a1.pos[2]);
+    console.log(`Seil einholen auf gleicher Ebene: Abstand nach 3 s ${d.toFixed(2)} m`);
+    want(d < 2 && Math.abs(a1.pos[0]) < 0.05, 'Festhalten holt den Partner auf gleicher Ebene heran, der Haltende bleibt stehen');
   }
   const a = haul(4.3, { anchor: true, seconds: 4 });
   want(!a.t && a.maxDist < PHYS.rope + 0.3, `Gegen einen festhaltenden Partner kommt man nicht weg (${a.maxDist.toFixed(2)} m)`);

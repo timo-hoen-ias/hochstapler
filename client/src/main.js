@@ -1281,7 +1281,7 @@ class Game {
     } else {
       $('hud-players').innerHTML = rows.map(row).join('');
     }
-    const br = $('brace'), hauling = this.locals.some((lp) => lp.body.braced === 2);
+    const br = $('brace'), hauling = this.locals.some((lp) => lp.body.braced === 2 || lp.body.braced === 3);
     br.classList.toggle('hidden', !this.locals.some((lp) => lp.body.braced));
     if (br.dataset.haul !== String(hauling)) { br.dataset.haul = String(hauling); br.textContent = hauling ? 'ZIEHEN' : 'FESTGEHALTEN'; }
   }
