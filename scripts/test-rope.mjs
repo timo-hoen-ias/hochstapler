@@ -153,6 +153,47 @@ function fall(rope) {
   want(low.pos[1] > 10 - PHYS.rope - 0.2 && top.pos[1] > 9.9, 'Wer festhält, fängt den Fallenden weiter auf');
 }
 
+// Hängende ziehen den Oberen herunter: ohne Festhalten (oder Gegenlaufen) wird er zur Kante
+// geschleift. Festhalten hält bis zu zwei Hängende, bei drei reißt es ihn mit.
+function hangers(n, { brace = false, walk = 0, seconds = 5 } = {}) {
+  const top0 = { min: [-20, -30, -3], max: [1, 10, 3], mat: 'concrete' };
+  const w = mk([top0]);
+  const top = createBody([-1, 10, 0]); top.grounded = true; top.ground = top0;
+  const chain = [top];
+  for (let k = 0; k < n; k++) chain.push(createBody([1.6, 10 - 3 - k * 4.3, 0]));
+  const hangs = (b) => !b.grounded && !b.braced;
+  for (let s = 0; s < seconds * 120; s++) {
+    chain.forEach((b, i) => stepBody(b, i === 0 ? { x: walk, z: 0, jump: false, brace } : { x: 0, z: 0, jump: false, brace: false }, w, dt));
+    chain.forEach((b, i) => {
+      for (const j of [i - 1, i + 1]) {
+        if (j < 0 || j >= chain.length) continue;
+        const o = chain[j];
+        if (freeFalling(b) && freeFalling(o)) continue;
+        let load = 0;
+        for (let k = j; k >= 0 && k < chain.length && hangs(chain[k]); k += j - i) load++;
+        applyRope(b, o.pos, o.grounded, o.braced, w, dt, null, load);
+      }
+    });
+    if (top.pos[1] < 9.5) return { off: true, t: s * dt, x: top.pos[0], grab: !!top.hang }; // runter (oder an die Kante gerettet)
+  }
+  return { off: false, x: top.pos[0], y: top.pos[1] };
+}
+{
+  const cases = [
+    [1, {}, true, 'Ein Hängender zieht den Oberen ohne Festhalten herunter'],
+    [1, { brace: true }, false, 'Festhalten hält einen Hängenden'],
+    [1, { walk: -1 }, false, 'Gegenlaufen hält einen Hängenden'],
+    [2, { brace: true }, false, 'Festhalten hält zwei Hängende gerade noch'],
+    [2, { walk: -1 }, true, 'Gegen zwei Hängende reicht Laufen nicht'],
+    [3, { brace: true }, true, 'Drei Hängende reißen auch einen Festhaltenden herunter'],
+  ];
+  for (const [n, o, off, msg] of cases) {
+    const r = hangers(n, o);
+    console.log(`Seilzug: ${n} hängend, ${o.brace ? 'festhalten' : o.walk ? 'gegenlaufen' : 'stehen'}: ${r.off ? `heruntergezogen nach ${r.t.toFixed(2)} s` : `hält (x=${r.x.toFixed(2)})`}`);
+    want(r.off === off, msg);
+  }
+}
+
 // Laufzeit: eine Kette in einem vollen Level
 {
   const statics = [{ min: [-20, -1, -20], max: [20, 0, 20], mat: 'concrete', big: true }];
