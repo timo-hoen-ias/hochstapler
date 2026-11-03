@@ -1,5 +1,5 @@
 import { buildLevel, sectionAtHeight } from './level.js';
-import { Colliders, createBody, stepBody, applyRope, releaseGrips, PHYS, topAt } from './physics.js';
+import { Colliders, createBody, stepBody, applyRope, releaseGrips, freeFalling, PHYS, topAt } from './physics.js';
 import { FixedStep } from './loop.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
@@ -1080,6 +1080,19 @@ class Game {
     return [p[0], p[1] + PHYS.ropeAttach, p[2]];
   }
 
+  // Seil-relevanter Zustand eines Spielers (lokal: Körper, sonst die Netzwerte)
+  ropeState(c) {
+    if (c.local) return c.local.body;
+    return { grounded: c.remote.grounded, braced: c.remote.braced, vel: c.remote.vel, swim: !!(c.remote.a & 32) };
+  }
+
+  // Hängt frei am Seil: kein Boden, kein Griff, nicht im Wasser (und das Seil ist dran)
+  hangsOnRope(c) {
+    if (c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0) return false;
+    const s = this.ropeState(c);
+    return !s.grounded && !s.braced && !s.swim;
+  }
+
   ropeStep(dt) {
     // Erst die Seile als Ketten nachführen (sie legen sich über Kanten und um Säulen) …
     const pairs = this.ropePairs();
@@ -1106,12 +1119,15 @@ class Game {
         const n = chain[j];
         if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0 || n.remote?.slack > 0) continue; // aufgeklatscht, Freiflug oder Respawn unterwegs: Seil ist ab
         // Fallen beide frei, hält das Seil niemanden: keine Kräfte (kein Umeinanderdrehen, kein Bremsen)
-        const nf = n.local ? n.local.body : { grounded: n.remote.grounded, braced: n.remote.braced, vel: n.remote.vel, swim: !!(n.remote.a & 32) };
+        const nf = this.ropeState(n);
         if (freeFalling(body) && freeFalling(nf)) continue;
         const wrap = wraps.get(c.id)?.get(n.id) || null;
+        // Wie viele hängen auf dieser Seite frei am Seil (Nachbar und wer dahinter hängt)?
+        let load = 0;
+        for (let k = j; k >= 0 && k < chain.length && this.hangsOnRope(chain[k]); k += j - idx) load++;
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
-        if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt, wrap));
-        else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt, wrap));
+        if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt, wrap, load));
+        else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt, wrap, load));
       }
       c.local.tension = tension;
       total = Math.max(total, tension);

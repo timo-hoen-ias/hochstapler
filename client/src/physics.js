@@ -14,7 +14,14 @@ export const PHYS = {
   jumpBuffer: 0.14,
   rope: 4.5,
   ropeAttach: 0.85, // Seil am Gurt: so hoch über dem Fußpunkt
-  ropeFallVy: 2,    // ab dieser Fallgeschwindigkeit gilt man als frei fallend (Seil wirkt dann nicht)
+  ropeFallVy: 2,
+  // Hängende ziehen am Seil: Wer oben steht und nicht festhält, wird zur Kante geschleift.
+  // Festhalten hält bis zu ropeHold Hängende, bei mehr reißt es einen mit.
+  ropeDrag: 1.4,      // Schleifgeschwindigkeit (m/s) …
+  ropeDragPer: 1.2,   // … plus so viel je Hängendem
+  ropeDragRip: 5,     // so schnell, wenn es einen trotz Festhalten mitreißt
+  ropeHold: 2,        // so viele Hängende hält ein Festhaltender gerade noch
+  dragWalk: 0.5,      // Gegenlaufen beim Geschleiftwerden: so viel vom Lauftempo bleibt    // ab dieser Fallgeschwindigkeit gilt man als frei fallend (Seil wirkt dann nicht)
   iceAccel: 9,
   bounce: 15.5,
   fanMax: 6.5,
@@ -591,7 +598,10 @@ export function stepBody(body, input, world, dt) {
     }
   }
 
-  body.braced = !!input.brace && body.grounded;
+  if (body.dragged > 0) body.dragged -= dt;
+  if (body.ripped > 0) body.ripped -= dt;
+  // Mitgerissen (zu viele hängen am Seil): Festhalten greift kurz nicht
+  body.braced = !!input.brace && body.grounded && !(body.ripped > 0);
   // Festhalten und laufen = am Seil ziehen: langsam, aber fast so fest wie ein Anker.
   // braced = 2 geht so auch übers Netz (Seilgewicht beim Mitspieler).
   const haul = body.braced && (input.x || input.z);
@@ -606,7 +616,7 @@ export function stepBody(body, input, world, dt) {
   const onIce = g0 && g0.ice;
   const onSlide = g0 && g0.ramp && g0.ramp.slide;
   const onRound = g0 && g0.round;
-  const sp = haul ? PHYS.haulSpeed : body.braced ? 0 : PHYS.speed;
+  const sp = haul ? PHYS.haulSpeed : body.braced ? 0 : PHYS.speed * (body.dragged > 0 ? PHYS.dragWalk : 1);
   let wantX = input.x * sp;
   let wantZ = input.z * sp;
   // Wind: Böen treiben den Spieler ab. Als Zielgeschwindigkeit eingerechnet, sonst hebt die
@@ -771,7 +781,9 @@ export function freeFalling(b) {
   return !b.grounded && !b.braced && !b.swim && !!b.vel && b.vel[1] < -PHYS.ropeFallVy;
 }
 
-export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt, wrap = null) {
+// load (optional): so viele Spieler hängen auf dieser Seite frei am Seil (der Partner und wer
+// hinter ihm hängt). Sie ziehen einen, wenn man oben steht, zur Kante.
+export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt, wrap = null, load = 0) {
   let L = PHYS.rope;
   const ax = body.pos[0], ay = body.pos[1] + PHYS.ropeAttach, az = body.pos[2];
   const to = wrap ? wrap.pt : [partnerPos[0], partnerPos[1] + PHYS.ropeAttach, partnerPos[2]];
@@ -782,6 +794,10 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   const nx = dx / seg, ny = dy / seg, nz = dz / seg;
   // Wer festhält oder zieht, schaut zum Seil (beim Zurücklaufen: rückwärts)
   if (body.braced && body.grounded && dist > L * 0.9) body.yaw = Math.atan2(nx, nz);
+  // Hängen zu viele am Seil, reißt es einen trotz Festhalten mit (kein Einholen, kein Anker)
+  const below = partnerPos[1] < body.pos[1] - 0.5;
+  const rip = load > PHYS.ropeHold && below && dist > L * 0.95 && body.braced && body.grounded && !body.hang && !body.hook && !body.ladder;
+  if (rip) { body.braced = false; body.reel = 0; body.ripped = 0.3; }
   // Festhalten im Stand (nicht an Kante, Haken oder Leiter): aktiv am Seil ziehen, es Hand
   // über Hand einholen. Beginnt, sobald das Seil fast straff ist.
   if (body.braced && body.braced !== 2 && body.grounded && !body.hang && !body.hook && !body.ladder
@@ -795,6 +811,21 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
     body.hang.tug = (body.hang.tug || 0) + dt;
     if (body.hang.tug >= PHYS.haulClimb) { climbOver(body, world.near(body.pos, 3)); body.hauled = true; }
     return dist / L;
+  }
+  // Hängende unter einem ziehen: ohne Festhalten (oder mit zu vielen daran) wird man geschleift
+  if (load > 0 && below && body.grounded && !body.braced) {
+    // waagerecht zum Seil hin (an der Kante hängt der Partner fast senkrecht darunter: trotzdem drüber)
+    // (steht man genau über ihm, in der letzten Richtung weiter, bis man über die Kante kippt)
+    const hx = to[0] - ax, hz = to[2] - az, hl = Math.hypot(hx, hz);
+    if (hl > 0.1 || !(body.dragged > 0) || !body.dragDir) body.dragDir = hl > 1e-3 ? [hx / hl, hz / hl] : null;
+    const d = body.dragDir;
+    if (d) {
+      const v = rip || body.ripped > 0 ? PHYS.ropeDragRip : PHYS.ropeDrag + PHYS.ropeDragPer * load;
+      const cols = world.near(body.pos, 3);
+      moveAxis(body, 0, d[0] * v * dt, cols);
+      moveAxis(body, 2, d[1] * v * dt, cols);
+      body.dragged = 0.25;
+    }
   }
   const wMe = ropeWeight(body.grounded, body.braced);
   const wP = ropeWeight(partnerGrounded, partnerBraced);
