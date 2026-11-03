@@ -864,7 +864,8 @@ class Game {
       const an = decodeAnim(r.a, r.grounded, r.braced);
       this.view.updateAvatar(r.id, {
         pos: r.rpos, vel: r.vel, yaw: r.yaw, grounded: r.grounded, braced: r.braced, ...an, hidden: r.hidden > 0,
-        grip: an.mode === 3 ? this.hookGrip(r.rpos) : null, pull: pulls.get(r.id),
+        grip: an.mode === 3 ? this.hookGrip(r.rpos) : null, pull: pulls.get(r.id), rope: this.ropeDirs.get(r.id),
+        gap: r.grounded ? 0 : this.groundGap(r.rpos),
         swim: !!(r.a & 32), dive: !!(r.a & 64), carry: !!(r.a & 16),
       }, dt, false);
     }
@@ -875,7 +876,8 @@ class Game {
       const an = decodeAnim(animCode(b));
       this.view.updateAvatar(lp.id, {
         pos: b.pos, vel: b.vel, yaw: visYaw(b), grounded: b.grounded, braced: b.braced, ...an, hidden: lp.dead > 0,
-        grip: b.hook ? b.hook.h.cur : null, pull: pulls.get(lp.id),
+        grip: b.hook ? b.hook.h.cur : null, pull: pulls.get(lp.id), rope: this.ropeDirs.get(lp.id),
+        gap: b.grounded ? 0 : this.groundGap(b.pos),
         swim: !!b.swim, dive: !!(b.swim && b.diving), carry: b.ext > 0,
       }, dt, single);
     }
@@ -990,15 +992,25 @@ class Game {
   // Zug des Seils am Gurt (Welt-Vektor, Länge 0..1) für jeden Spieler
   ropePulls() {
     const out = new Map();
+    // Richtung zum Seil je Spieler (auch locker) – zum Festhalten/Ziehen dreht sich die Figur dorthin
+    const dirs = this.ropeDirs = new Map();
     const L = PHYS.rope;
     for (const pr of this.ropePairs()) {
       const rc = this.ropeSet.map.get(pr.key);
       const a = this.ropeAttach(pr.a), b = this.ropeAttach(pr.b);
       const len = rc?.p ? rc.len : Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
       const k = Math.min(1, Math.max(0, (len / L - 0.93) * 9));
-      if (k <= 0 || len < 1e-3) continue;
       // Zug in Richtung des ersten Umlenkpunkts (über die Kante statt durch die Wand)
       const path = rc?.path || [];
+      for (const [c, from, to] of [[pr.a, a, path[0] || b], [pr.b, b, path[path.length - 1] || a]]) {
+        const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        const l = Math.hypot(d[0], d[1], d[2]);
+        if (l < 1e-3) continue;
+        const v = dirs.get(c.id) || [0, 0, 0];
+        for (let j = 0; j < 3; j++) v[j] += d[j] / l;
+        dirs.set(c.id, v);
+      }
+      if (k <= 0 || len < 1e-3) continue;
       for (const [c, from, to] of [[pr.a, a, path[0] || b], [pr.b, b, path[path.length - 1] || a]]) {
         const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
         const l = Math.hypot(d[0], d[1], d[2]);
@@ -1013,6 +1025,17 @@ class Game {
       if (l > 1) for (let j = 0; j < 3; j++) v[j] /= l;
     }
     return out;
+  }
+
+  // Abstand der Füße zum nächsten Boden darunter (für die Landevorbereitung der Animation)
+  groundGap(p) {
+    let top = -Infinity;
+    for (const b of this.world.near(p, 0.5, 4)) {
+      if (b.hidden || p[0] < b.min[0] - 0.25 || p[0] > b.max[0] + 0.25 || p[2] < b.min[2] - 0.25 || p[2] > b.max[2] + 0.25) continue;
+      const y = topAt(b, Math.min(b.max[0], Math.max(b.min[0], p[0])), Math.min(b.max[2], Math.max(b.min[2], p[2])));
+      if (y <= p[1] + 0.05 && y > top) top = y;
+    }
+    return top === -Infinity ? 99 : p[1] - top;
   }
 
   // Aufhängepunkt des Kranhakens, an dem ein Mitspieler hängt (für das Pendeln)

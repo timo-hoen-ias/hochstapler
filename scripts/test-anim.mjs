@@ -21,6 +21,13 @@ push(60, (t) => ({ pos: [0, 0, 0], vel: [0, 0, 0], yaw: 0, grounded: t > 0.6, mo
 // Schwimmen: treten → schwimmen → tauchen → raus, dann mit Feuerlöscher laufen
 push(150, (t) => ({ pos: [0, 0, t * (t > 0.8 ? 2.4 : 0)], vel: [0, 0, t > 0.8 ? 2.4 : 0], yaw: 0, grounded: false, mode: MODE.AIR, swim: true, dive: t > 1.8 }));
 push(90, (t) => ({ pos: [0, 0, t * 3], vel: [0, 0, 3], yaw: 0, grounded: true, mode: MODE.GROUND, carry: t < 1 }));
+// Festhalten → Seil einholen → rückwärts hochziehen → loslassen (Figur dreht sich zum Seil)
+push(40, () => ({ pos: [0, 0, 0], vel: [0, 0, 0], yaw: 2, grounded: true, braced: true, mode: MODE.GROUND, rope: [0, -0.5, 1], pull: [0, -0.4, 0.8] }));
+push(90, () => ({ pos: [0, 0, 0], vel: [0, 0, 0], yaw: 2, grounded: true, braced: 3, mode: MODE.GROUND, rope: [0, -0.5, 1], pull: [0, -0.4, 0.8] }));
+push(90, (t) => ({ pos: [0, 0, -t * 2.3], vel: [0, 0, -2.3], yaw: 2, grounded: true, braced: 2, mode: MODE.GROUND, rope: [0, -0.3, 1], pull: [0, -0.3, 0.9] }));
+push(40, (t) => ({ pos: [0, 0, -2], vel: [0, 0, 0], yaw: 2, grounded: true, braced: false, mode: MODE.GROUND, rope: [0, -0.3, 1] }));
+// Sprung mit Landevorbereitung (Abstand zum Boden)
+push(45, (t) => { const y = Math.max(0, 9.2 * t - G * t * t / 2); return { pos: [0, y, t * 5], vel: [5 * 0, y > 0 ? 9.2 - G * t : 0, 5], yaw: 0, grounded: t > 0.05 && y <= 0, mode: t > 0.05 && y <= 0 ? MODE.GROUND : MODE.AIR, gap: y }; });
 push(60, (t) => { const y = Math.max(0, 8 - G * t * t / 2); return { pos: [0, y, 0], vel: [0, y > 0 ? -G * t : 0, 0], yaw: 0, grounded: y <= 0, mode: y > 0 ? MODE.AIR : MODE.GROUND }; });
 
 let prev = null, worst = 0, at = -1, bad = 0;
