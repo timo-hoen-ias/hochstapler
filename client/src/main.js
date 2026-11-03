@@ -12,6 +12,7 @@ import { audio } from './audio/index.js';
 import { animCode, decodeAnim } from './anim.js';
 import { updateFires, waterAt } from './elements.js';
 import { nearestFire } from './elements3d.js';
+import { RopeSet } from './rope.js';
 import { TEAMS, modeLabel, hostOf, modeError, ropeGroups } from './teams.js';
 import { MachineControl } from './machinectl.js';
 import { DebugConsole, flyStep } from './debug.js';
@@ -161,6 +162,7 @@ class Game {
     this.hudAcc = 0;
     this.last = performance.now();
     this.tension = 0;
+    this.ropeSet = new RopeSet(); // Seile als Partikelketten (Kollision mit dem Level)
     this.mode = 'rope'; // 'rope' = alle an einem Seil, 'teams' = 2 gegen 2
     this.tcp = [0, 0]; // Zwischenstopps beider Teams (nur 2 gegen 2)
     this.race = null; // { startedAt, winner, time } im Teammodus
@@ -858,14 +860,14 @@ class Game {
     }
 
     // Seile zeichnen (bei 2 gegen 2 eins je Team)
-    const pairs = [];
-    for (const chain of this.chains()) {
-      for (let i = 1; i < chain.length; i++) {
-        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0)) continue;
-        pairs.push([this.posOf(chain[i - 1]), this.posOf(chain[i]), PHYS.rope]);
-      }
+    // Die Kette liefert die Form, die Enden sitzen genau an den gezeichneten Figuren
+    const ropes = [];
+    for (const pr of this.ropePairs()) {
+      const rc = this.ropeSet.map.get(pr.key);
+      const a = this.ropeAttach(pr.a), b = this.ropeAttach(pr.b);
+      ropes.push({ a, b, pts: rc?.p || null, len: rc?.p ? rc.len : Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), L: PHYS.rope });
     }
-    this.view.setRopes(pairs);
+    this.view.setRopes(ropes);
 
     // Zustand senden (20 Hz), jeder lokale Spieler über seine eigene Verbindung
     this.sendAcc += dt;
@@ -968,19 +970,21 @@ class Game {
   ropePulls() {
     const out = new Map();
     const L = PHYS.rope;
-    for (const chain of this.chains()) {
-      for (let i = 1; i < chain.length; i++) {
-        if ([chain[i - 1], chain[i]].some((c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0)) continue;
-        const a = this.posOf(chain[i - 1]), b = this.posOf(chain[i]);
-        const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        const len = Math.hypot(d[0], d[1], d[2]);
-        const k = Math.min(1, Math.max(0, (len / L - 0.93) * 9));
-        if (k <= 0 || len < 1e-3) continue;
-        for (const [c, sg] of [[chain[i - 1], 1], [chain[i], -1]]) {
-          const v = out.get(c.id) || [0, 0, 0];
-          for (let j = 0; j < 3; j++) v[j] += (d[j] / len) * k * sg;
-          out.set(c.id, v);
-        }
+    for (const pr of this.ropePairs()) {
+      const rc = this.ropeSet.map.get(pr.key);
+      const a = this.ropeAttach(pr.a), b = this.ropeAttach(pr.b);
+      const len = rc?.p ? rc.len : Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+      const k = Math.min(1, Math.max(0, (len / L - 0.93) * 9));
+      if (k <= 0 || len < 1e-3) continue;
+      // Zug in Richtung des ersten Umlenkpunkts (über die Kante statt durch die Wand)
+      const path = rc?.path || [];
+      for (const [c, from, to] of [[pr.a, a, path[0] || b], [pr.b, b, path[path.length - 1] || a]]) {
+        const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        const l = Math.hypot(d[0], d[1], d[2]);
+        if (l < 1e-3) continue;
+        const v = out.get(c.id) || [0, 0, 0];
+        for (let j = 0; j < 3; j++) v[j] += (d[j] / l) * k;
+        out.set(c.id, v);
       }
     }
     for (const v of out.values()) {
@@ -1013,7 +1017,41 @@ class Game {
     return y;
   }
 
+  // Seilpaare (benachbarte Spieler einer Kette), ohne aufgeklatschte, fliegende und versteckte
+  ropePairs() {
+    const out = [];
+    const off = (c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0;
+    for (const chain of this.chains()) {
+      for (let i = 1; i < chain.length; i++) {
+        const a = chain[i - 1], b = chain[i];
+        if (off(a) || off(b)) continue;
+        out.push({ a, b, key: a.id + '|' + b.id });
+      }
+    }
+    return out;
+  }
+
+  ropeAttach(c) {
+    const p = this.posOf(c);
+    return [p[0], p[1] + PHYS.ropeAttach, p[2]];
+  }
+
   ropeStep(dt) {
+    // Erst die Seile als Ketten nachführen (sie legen sich über Kanten und um Säulen) …
+    const pairs = this.ropePairs();
+    const keys = new Set();
+    const wraps = new Map(); // Spieler-ID -> Nachbar-ID -> Umlenkpunkt
+    for (const pr of pairs) {
+      keys.add(pr.key);
+      const rc = this.ropeSet.get(pr.key).step(this.ropeAttach(pr.a), this.ropeAttach(pr.b), this.world, dt);
+      for (const [c, o, end] of [[pr.a, pr.b, 0], [pr.b, pr.a, 1]]) {
+        if (!c.local) continue;
+        if (!wraps.has(c.id)) wraps.set(c.id, new Map());
+        wraps.get(c.id).set(o.id, rc.wrapFor(end));
+      }
+    }
+    this.ropeSet.keep(keys);
+    // … dann die Spieler daran koppeln
     let total = 0;
     for (const chain of this.chains()) chain.forEach((c, idx) => {
       if (!c.local || c.local.dead > 0 || c.local.fly) return;
@@ -1023,9 +1061,10 @@ class Game {
         if (j < 0 || j >= chain.length) continue;
         const n = chain[j];
         if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0) continue; // aufgeklatscht oder Freiflug: Seil ist ab
+        const wrap = wraps.get(c.id)?.get(n.id) || null;
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
-        if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt));
-        else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt));
+        if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt, wrap));
+        else tension = Math.max(tension, applyRope(body, n.remote.rpos, n.remote.grounded, n.remote.braced, this.world, dt, wrap));
       }
       c.local.tension = tension;
       total = Math.max(total, tension);

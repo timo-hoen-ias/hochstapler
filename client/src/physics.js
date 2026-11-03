@@ -13,6 +13,7 @@ export const PHYS = {
   coyote: 0.12,
   jumpBuffer: 0.14,
   rope: 4.5,
+  ropeAttach: 0.85, // Seil am Gurt: so hoch über dem Fußpunkt
   iceAccel: 9,
   bounce: 15.5,
   fanMax: 6.5,
@@ -760,13 +761,17 @@ export function ropeWeight(grounded, braced) {
   return 1;
 }
 
-export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt) {
+// wrap (optional, aus rope.js): Das Seil läuft über Kanten oder um Säulen. Dann zieht es
+// zum ersten Umlenkpunkt wrap.pt; wrap.rest ist die Seillänge von dort bis zum Partner.
+export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt, wrap = null) {
   let L = PHYS.rope;
-  const ax = body.pos[0], ay = body.pos[1] + 1.1, az = body.pos[2];
-  const dx = partnerPos[0] - ax, dy = partnerPos[1] + 1.1 - ay, dz = partnerPos[2] - az;
-  const dist = Math.hypot(dx, dy, dz);
-  if (dist < 1e-4) return 0;
-  const nx = dx / dist, ny = dy / dist, nz = dz / dist;
+  const ax = body.pos[0], ay = body.pos[1] + PHYS.ropeAttach, az = body.pos[2];
+  const to = wrap ? wrap.pt : [partnerPos[0], partnerPos[1] + PHYS.ropeAttach, partnerPos[2]];
+  const dx = to[0] - ax, dy = to[1] - ay, dz = to[2] - az;
+  const seg = Math.hypot(dx, dy, dz);
+  if (seg < 1e-4) return 0;
+  const dist = seg + (wrap ? wrap.rest : 0);
+  const nx = dx / seg, ny = dy / seg, nz = dz / seg;
   // Wer festhält oder zieht, schaut zum Seil (beim Zurücklaufen: rückwärts)
   if (body.braced && body.grounded && dist > L * 0.9) body.yaw = Math.atan2(nx, nz);
   // Festhalten im Stand (nicht an Kante, Haken oder Leiter): aktiv am Seil ziehen, es Hand
@@ -789,6 +794,7 @@ export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, worl
   const share = wMe / (wMe + wP);
   let corr = (dist - L) * share;
   corr = Math.min(corr, 0.9); // Netzwerk-Ruckler nicht als Teleport durchreichen
+  if (wrap) corr = Math.min(corr, seg); // nicht über den Umlenkpunkt hinaus
   if (corr > 0) {
     const cols = world.near(body.pos, 3);
     if (moveAxis(body, 1, ny * corr, cols) && ny < 0) { body.grounded = true; }
