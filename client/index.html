@@ -144,7 +144,7 @@
         <p id="mode-note" class="small"></p>
       </div>
       <button class="ghost wide" type="button" data-go="options">Optionen</button>
-      <button class="ghost wide" type="button" data-act="respawn">Team zum letzten Zwischenstopp holen</button>
+      <button class="ghost wide" type="button" data-act="respawn">Zurück zum letzten Zwischenstopp</button>
       <button class="ghost wide danger" type="button" data-act="quit">Hauptmenü</button>
     </section>
 
@@ -166,10 +166,10 @@
           <div><em><kbd>Leertaste</kbd></em><span>springen</span></div>
           <div><em><kbd>Shift</kbd> <kbd>Rechtsklick</kbd></em><span>festhalten</span></div>
           <div><em><kbd>G</kbd></em><span>benutzen (Maschinen)</span></div>
-          <div><em><kbd>Maus</kbd> <kbd>Q</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>F</kbd></em><span>Kamera</span></div>
+          <div><em><kbd>Maus</kbd> <kbd>Q</kbd> <kbd>E</kbd> <kbd>F</kbd> <kbd>V</kbd></em><span>Kamera</span></div>
           <div><em><kbd>Mausrad</kbd></em><span>Zoom</span></div>
           <div><em><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></em><span>Zurufe</span></div>
-          <div><em><kbd>T</kbd> <kbd>Rücktaste</kbd></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><kbd>R</kbd></em><span>zurück zum Zwischenstopp (im Koop: alle stimmen zu)</span></div>
           <div><em><kbd>M</kbd></em><span>Ton an/aus</span></div>
           <div><em><kbd>Esc</kbd></em><span>Pause</span></div>
         </div>
@@ -182,7 +182,7 @@
           <div><em><i data-xb="RS"></i></em><span>Kamera</span></div>
           <div><em><i data-xb="DUpDown"></i></em><span>Zoom</span></div>
           <div><em><i data-xb="DLeft Y LB"></i></em><span>Zurufe</span></div>
-          <div><em><i data-xb="View"></i></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><i data-xb="View"></i></em><span>zurück zum Zwischenstopp (im Koop: alle stimmen zu)</span></div>
           <div><em><i data-xb="Menu"></i></em><span>Pause</span></div>
           <div><em><i data-xb="A"></i></em><span>an freiem Controller: lokal einsteigen</span></div>
         </div>
@@ -195,7 +195,7 @@
           <div><em><kbd>rechte Hälfte</kbd></em><span>Kamera wischen</span></div>
           <div><em><kbd>＋</kbd> <kbd>−</kbd></em><span>Zoom</span></div>
           <div><em><kbd>💬</kbd></em><span>Zurufe</span></div>
-          <div><em><kbd>↺</kbd></em><span>zurück zum Zwischenstopp</span></div>
+          <div><em><kbd>↺</kbd></em><span>zurück zum Zwischenstopp (im Koop: alle stimmen zu)</span></div>
           <div><em><kbd>❚❚</kbd></em><span>Pause</span></div>
         </div>
       </div>
@@ -219,10 +219,11 @@
       <div id="hud-players"></div>
     </div>
     <div id="brace" class="hidden">FESTGEHALTEN</div>
+    <div id="vote" class="hidden" aria-live="polite"></div>
     <div id="toasts"></div>
     <div id="crosshair"></div>
     <div id="hints">
-      <div class="h-kbm"><kbd>Leertaste</kbd> springen · <kbd>Shift</kbd> festhalten · <kbd>G</kbd> benutzen · <kbd>1-3</kbd> Zurufe · <kbd>T</kbd> Reset · <kbd>Esc</kbd> Pause</div>
+      <div class="h-kbm"><kbd>Leertaste</kbd> springen · <kbd>Shift</kbd> festhalten · <kbd>G</kbd> benutzen · <kbd>1-3</kbd> Zurufe · <kbd>R</kbd> Reset · <kbd>Esc</kbd> Pause</div>
       <div class="h-pad"><i data-xb="A"></i> springen · <i data-xb="RT"></i> festhalten · <i data-xb="X"></i> benutzen · <i data-xb="DLeft Y LB"></i> Zurufe · <i data-xb="View"></i> Reset · <i data-xb="Menu"></i> Pause</div>
     </div>
     <div id="click-hint" class="hidden">Klicken, um die Maus zu fangen</div>

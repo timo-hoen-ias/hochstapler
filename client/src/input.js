@@ -129,7 +129,8 @@ export class Input {
       if (!this.enabled) return;
       if (e.code === 'Space') { if (!this.keys.has('Space')) this.jumpQueued = true; e.preventDefault(); }
       if (e.code === 'KeyG' && !e.repeat) this.useQueued = true;
-      if ((e.code === 'Backspace' || e.code === 'KeyT') && !e.repeat && this.enabled && e.target.tagName !== 'INPUT') { e.preventDefault(); this.h.reset?.(); }
+      // R: zurück zum Zwischenstopp (im Koop als Abstimmung); Rücktaste/T wie früher
+      if ((e.code === 'KeyR' || e.code === 'Backspace' || e.code === 'KeyT') && !e.repeat && this.enabled && e.target.tagName !== 'INPUT') { e.preventDefault(); this.h.reset?.(); }
       this.keys.add(e.code);
       const em = { Digit1: 0, Digit2: 1, Digit3: 2 }[e.code];
       if (em !== undefined && !e.repeat) this.h.emote?.(em);
@@ -293,8 +294,8 @@ export class Input {
       if (k.has('KeyA') || k.has('ArrowLeft')) rx -= 1;
       if (k.has('KeyQ')) this.lookX += 2.2 * dt;
       if (k.has('KeyE')) this.lookX -= 2.2 * dt;
-      if (k.has('KeyR')) this.lookY -= 1.4 * dt;
-      if (k.has('KeyF')) this.lookY += 1.4 * dt;
+      if (k.has('KeyF')) this.lookY -= 1.4 * dt; // Kamera hoch/runter: F / V (R ist Reset)
+      if (k.has('KeyV')) this.lookY += 1.4 * dt;
       brace = k.has('ShiftLeft') || k.has('ShiftRight') || this.mouseBrace;
       up = k.has('Space');
     }

@@ -242,6 +242,14 @@ export class Room extends DurableObject {
         if (!me.id) return;
         this.broadcast({ t: 'warp', name: me.name, team: me.team ?? 0 }, ws);
         return;
+      case 'vote': { // Abstimmung „zurück zum Zwischenstopp“: nur weiterreichen
+        if (!me.id || !['ask', 'yes', 'cancel'].includes(m.op) || typeof m.v !== 'string') return;
+        const out = { t: 'vote', op: m.op, v: m.v.slice(0, 12), id: me.id, name: me.name, team: me.team ?? 0 };
+        if (m.op === 'ask') out.need = (Array.isArray(m.need) ? m.need : []).filter((x) => typeof x === 'string').slice(0, 4).map((x) => x.slice(0, 16));
+        if (m.op === 'cancel' && m.why === 'time') out.why = 'time';
+        this.broadcast(out, ws);
+        return;
+      }
       case 'goal': {
         if (!me.id) return;
         const ms = await this.modeState();
