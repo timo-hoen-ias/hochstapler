@@ -347,3 +347,15 @@ body[data-device=pad] .ctl-grid .ctl:nth-child(2) { order: -1; }
 #debug input { flex: 1; background: transparent; border: 0; outline: none; color: #fff; font: inherit; padding: 4px 0; }
 #debug-badge { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 55; pointer-events: none; background: rgba(200, 40, 40, 0.85); color: #fff; font: 700 12px/1 system-ui, sans-serif; letter-spacing: 1px; padding: 6px 12px; border-radius: 12px; }
 #debug-badge.hidden { display: none; }
+
+/* Abstimmung „zurück zum Zwischenstopp“ (Koop) */
+#vote { position: absolute; left: 50%; top: 13%; transform: translateX(-50%); background: var(--panel); border-radius: 10px; border-top: 4px solid var(--accent); padding: 10px 16px; text-align: center; max-width: min(460px, 92vw); box-shadow: 0 6px 20px rgba(0,0,0,0.35); animation: vote-in 0.2s ease-out; }
+#vote .vote-title { font-weight: 800; font-size: 16px; }
+#vote .vote-sub { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+#vote .vote-who { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 10px; margin: 8px 0 6px; font-weight: 600; }
+#vote .vote-who .ok { color: #7ee07e; }
+#vote .vote-who .wait { opacity: 0.6; }
+#vote .vote-hint { font-size: 13px; }
+#vote .vote-hint kbd, #vote .vote-hint .xb { vertical-align: middle; }
+#vote:not(.hidden) ~ #toasts { top: calc(13% + 128px); }
+@keyframes vote-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translateX(-50%); } }

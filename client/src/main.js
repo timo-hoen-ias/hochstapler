@@ -5,7 +5,8 @@ import { Renderer } from './render.js';
 import { Net } from './net.js';
 import { Input, PadInput, EMOTES, listPads, padClaims } from './input.js';
 import { Menu } from './menu.js';
-import { keysHtml, glyphify } from './glyphs.js';
+import { keysHtml, glyphify, xb } from './glyphs.js';
+import { ResetVote, VOTE_GRACE, voteWinner, newVoteId } from './vote.js';
 import { LocalLobby, LOCAL_COLORS, MAX_LOCAL } from './lobby.js';
 import { settings } from './settings.js';
 import { audio } from './audio/index.js';
@@ -76,7 +77,7 @@ const menu = new Menu({
   resume: () => game?.resume(),
   copylink: () => game?.copyLink(),
   // Pausemenü: ganzes Team zum letzten Zwischenstopp holen
-  respawn: () => { game?.warpTeam(); game?.resume(); },
+  respawn: () => { game?.resume(); game?.requestReset(game.p1); },
   // Spielmodus (nur Gastgeber): Seil für alle ↔ 2 gegen 2, Teams neu auslosen
   mode: () => game?.toggleMode(),
   shuffle: () => game?.requestMode('teams', true),
@@ -169,6 +170,7 @@ class Game {
     this.modeWish = modeWish.get();
     this.netReady = false; // Verbindung von Spieler 1 steht (oder ist endgültig offline)
     this.padPrev = new Map(); // Tastenzustand freier Controller (Einsteigen mitten im Spiel)
+    this.votes = new Map(); // laufende Abstimmungen „zurück zum Zwischenstopp“ (Kennung → ResetVote)
 
     const p1 = this.newLocal(name, 0);
     $('hud-room').textContent = `RAUM ${room}`;
@@ -233,7 +235,7 @@ class Game {
     lp.input = new PadInput(pad, {
       pause: () => (this.paused ? this.resume() : this.pause()),
       emote: (i) => this.emote(i, lp),
-      reset: () => this.resetToSafe(lp),
+      reset: () => this.requestReset(lp),
     });
     lp.pad = pad;
     // Neben Spieler 1 auftauchen – steht der gerade nicht sicher, am Zwischenstopp
@@ -352,6 +354,7 @@ class Game {
       }
       case 'leave':
         this.mc.dropId(m.id);
+        this.voteLeave(m.id, m.name);
         if (!this.remotes.has(m.id)) return;
         this.removeRemote(m.id);
         this.toast(`${m.name} hat sich abgeseilt`);
@@ -412,12 +415,16 @@ class Game {
       case 'warp': {
         // Bei 2 gegen 2 holt man nur das eigene Team zurück
         const hit = this.locals.filter((lp) => this.mode !== 'teams' || m.team === undefined || lp.team === m.team);
+        this.closeVotes((v) => this.mode !== 'teams' || m.team === undefined || v.team === m.team);
         if (!hit.length) break;
-        this.toast(`${m.name} holt das Team zum ${this.cpLabel(this.cpOf(hit[0]))}`);
+        this.toast(`${m.name}: alle einverstanden – zurück zum ${this.cpLabel(this.cpOf(hit[0]))}`);
         for (const lp of hit) this.respawn(lp, false);
         this.awaitWarp((r) => this.mode !== 'teams' || m.team === undefined || r.team === m.team);
         break;
       }
+      case 'vote':
+        this.onVote(m);
+        break;
       case 'restart':
         if (m.race) { this.race = m.race; this.tcp = [0, 0]; } else { this.startedAt = m.startedAt; this.played = 0; }
         this.setCheckpoint(0, false, true);
@@ -578,7 +585,7 @@ class Game {
     this.input = this.p1.input = new Input(canvas, {
       pause: () => (this.paused ? this.resume() : this.pause()),
       emote: (i) => this.emote(i, this.p1),
-      reset: () => this.resetToSafe(this.p1),
+      reset: () => this.requestReset(this.p1),
       toast: (t) => this.toast(t),
       device: () => this.updateClickHint(),
     }, { pad });
@@ -918,7 +925,7 @@ class Game {
       section: sectionAtHeight(this.level, Math.max(0, this.topY())),
     });
     this.hudAcc += dt;
-    if (this.hudAcc > 0.1) { this.hudAcc = 0; this.updateHud(); }
+    if (this.hudAcc > 0.1) { this.hudAcc = 0; this.tickVotes(); this.updateHud(); this.updateVoteUi(); }
     this.elementsFrame(dt, views ? views[0].pos : this.view.camera.position.toArray(), views ? this.cameraFocus().target : p1.pos);
     this.view.update(dt, this.world, views ? this.cameraFocus().target : p1.pos, views);
     // Erst nach Spieler 1 (der sich in readInputs seinen Controller nimmt): freie Controller dürfen einsteigen
@@ -1164,37 +1171,162 @@ class Game {
     return [p[0], p[1] + 0.3, p[2]];
   }
 
-  // Reset-Taste: zurück zum letzten Zwischenstopp. Am Seil kommt die ganze
-  // Seilschaft mit (sonst zieht das Seil sofort wieder), bei 2 gegen 2 das eigene Team.
-  resetToSafe(lp) {
-    if (this.paused || this.finished) return;
+  // Seilschaft von lp: wer mit zurück muss (und deshalb zustimmen muss)
+  resetGroup(lp) {
+    return this.chains().find((c) => c.some((e) => e.local === lp)) || [{ id: lp.id, local: lp }];
+  }
+
+  // Reset-Taste (R / View / ↺, Pausemenü): allein sofort zurück, im Koop erst
+  // abstimmen – alle in der Seilschaft müssen zustimmen.
+  requestReset(lp) {
+    if (this.paused || this.finished || !this.locals.includes(lp)) return;
     const now = performance.now();
+    const open = [...this.votes.values()].find((v) => v.has(lp.id));
+    if (open) {
+      if (open.yes.has(lp.id)) {
+        if (now - (lp.voteNag || 0) > 1500) {
+          lp.voteNag = now;
+          this.toast(`Warte auf Zustimmung (${open.count}/${open.need.length})`);
+        }
+        return;
+      }
+      open.agree(lp.id);
+      this.voteNet(lp).send({ t: 'vote', op: 'yes', v: open.v });
+      audio.play('emote', { index: 2 });
+      this.checkVote(open);
+      return;
+    }
+    const group = this.resetGroup(lp);
+    if (group.length < 2) { this.resetToSafe(lp); return; }
     if (now - (this.lastReset || 0) < 800) return;
+    const v = new ResetVote({ v: newVoteId(), by: lp.id, byName: lp.name, need: group.map((e) => e.id), team: lp.team ?? 0, now });
+    this.votes.set(v.v, v);
+    this.voteNet(lp).send({ t: 'vote', op: 'ask', v: v.v, need: v.need });
+    audio.play('emote', { index: 0 });
+    // Lokale Mitspieler stimmen per eigenem Knopf ab – nichts automatisch
+    this.checkVote(v);
+  }
+
+  voteNet(lp) {
+    return lp.net?.online ? lp.net : this.net;
+  }
+
+  // Nachricht eines Mitspielers (oder eines eigenen lokalen Spielers über dessen Verbindung)
+  onVote(m) {
+    // Eigene lokale Spieler: schon hier verbucht (kommt nur als Echo über deren Verbindung)
+    if (typeof m.v !== 'string' || !m.id || this.isLocal(m.id)) return;
+    const now = performance.now();
+    if (m.op === 'ask') {
+      if (this.votes.has(m.v) || !Array.isArray(m.need)) return;
+      const v = new ResetVote({ v: m.v, by: m.id, byName: m.name || 'Jemand', need: m.need.filter((x) => typeof x === 'string'), team: m.team ?? 0, now });
+      // Gleichzeitig gefragt? Überall gewinnt dieselbe Abstimmung, der andere Fragende stimmt ihr zu
+      const clash = [...this.votes.values()].find((o) => o.need.some((id) => v.has(id)));
+      if (clash) {
+        const win = voteWinner(clash, v), lose = win === v ? clash : v;
+        this.votes.delete(lose.v);
+        this.votes.set(win.v, win);
+        win.agree(lose.by);
+        const loser = this.locals.find((l) => l.id === lose.by);
+        if (loser) this.voteNet(loser).send({ t: 'vote', op: 'yes', v: win.v });
+        this.checkVote(win);
+        return;
+      }
+      this.votes.set(v.v, v);
+      if (this.locals.some((l) => v.has(l.id))) audio.play('emote', { index: 0, remote: true });
+      this.checkVote(v);
+    } else if (m.op === 'yes') {
+      const v = this.votes.get(m.v);
+      if (v && v.agree(m.id)) this.checkVote(v);
+    } else if (m.op === 'cancel') {
+      const v = this.votes.get(m.v);
+      if (!v) return;
+      this.votes.delete(m.v);
+      if (this.locals.some((l) => v.has(l.id))) this.toast(m.why === 'time' ? 'Nicht alle haben zugestimmt – kein Reset' : `${v.byName} hat die Abstimmung abgebrochen`);
+    }
+  }
+
+  // Alle dafür? Wer gefragt hat, holt die Seilschaft (der Warp geht an alle anderen)
+  checkVote(v) {
+    if (!v.done || v.closing) return;
+    const by = this.locals.find((l) => l.id === v.by);
+    if (by) {
+      this.votes.delete(v.v);
+      this.resetToSafe(by, true);
+    } else {
+      // Der Fragende sitzt woanders: sein Warp kommt gleich
+      v.closing = true;
+      v.until = Math.min(v.until, performance.now() + 3000);
+    }
+  }
+
+  closeVotes(filter = () => true) {
+    for (const v of [...this.votes.values()]) if (filter(v)) this.votes.delete(v.v);
+  }
+
+  voteLeave(id, name) {
+    for (const v of [...this.votes.values()]) {
+      if (!v.has(id)) continue;
+      if (v.by === id) {
+        this.votes.delete(v.v);
+        if (this.locals.some((l) => v.has(l.id))) this.toast(`${name || v.byName} ist weg – Abstimmung abgebrochen`);
+      } else { v.drop(id); this.checkVote(v); }
+    }
+  }
+
+  tickVotes() {
+    const now = performance.now();
+    for (const v of [...this.votes.values()]) {
+      const mine = this.locals.find((l) => l.id === v.by);
+      if (mine && now > v.until) {
+        this.votes.delete(v.v);
+        this.voteNet(mine).send({ t: 'vote', op: 'cancel', v: v.v, why: 'time' });
+        this.toast('Nicht alle haben zugestimmt – kein Reset');
+      } else if (!mine && now > v.until + (v.closing ? 0 : VOTE_GRACE * 1000)) this.votes.delete(v.v);
+    }
+  }
+
+  // Anzeige: wer fragt, wer schon zugestimmt hat, womit man zustimmt
+  updateVoteUi() {
+    const el = $('vote');
+    if (!el) return;
+    const v = [...this.votes.values()].find((x) => this.locals.some((l) => x.has(l.id)));
+    if (!v) { if (!el.classList.contains('hidden')) { el.classList.add('hidden'); el.dataset.key = ''; } return; }
+    const now = performance.now();
+    const names = new Map(this.everyone().map((e) => [e.id, e.local ? e.local.name : e.remote.name]));
+    const pending = this.locals.filter((l) => v.has(l.id) && !v.yes.has(l.id));
+    const dev = document.body.dataset.device;
+    const keyOf = (l) => (l !== this.p1 || dev === 'pad' ? xb('View') : dev === 'touch' ? '<kbd>↺</kbd>' : '<kbd>R</kbd>');
+    const who = v.need.map((id) => `<span class="${v.yes.has(id) ? 'ok' : 'wait'}">${v.yes.has(id) ? '✓' : '…'} ${esc(names.get(id) || '?')}</span>`).join('');
+    const target = this.cpLabel(this.cpOf(this.locals.find((l) => v.has(l.id)) || this.p1));
+    let hint;
+    if (v.closing || v.done) hint = 'Alle einverstanden';
+    else if (pending.length === 1 && this.locals.length === 1) hint = `Zustimmen: ${keyOf(pending[0])}`;
+    else if (pending.length) hint = 'Zustimmen: ' + pending.map((l) => `${esc(l.name)} ${keyOf(l)}`).join(' · ');
+    else hint = `Warte auf die anderen · noch ${v.secondsLeft(now)} s`;
+    const html = `<div class="vote-title">↺ Zurück zum ${esc(target)}?</div>`
+      + `<div class="vote-sub">${esc(v.byName)} fragt · ${v.count}/${v.need.length}</div>`
+      + `<div class="vote-who">${who}</div><div class="vote-hint">${hint}</div>`;
+    if (el.dataset.key !== html) { el.innerHTML = html; el.dataset.key = html; }
+    el.classList.remove('hidden');
+  }
+
+  // Zurück zum letzten Zwischenstopp. Am Seil kommt die ganze Seilschaft mit
+  // (sonst zieht das Seil sofort wieder), bei 2 gegen 2 das eigene Team.
+  // voted: nach erfolgreicher Abstimmung (auch wenn der Fragende gerade pausiert)
+  resetToSafe(lp, voted = false) {
+    if (!voted && (this.paused || this.finished)) return;
+    const now = performance.now();
+    if (!voted && now - (this.lastReset || 0) < 800) return;
     this.lastReset = now;
-    const chain = this.chains().find((c) => c.some((e) => e.local === lp)) || [{ local: lp }];
+    const chain = this.resetGroup(lp);
     for (const e of chain) if (e.local) this.respawn(e.local, false);
     if (chain.some((e) => e.remote)) {
-      (lp.net?.online ? lp.net : this.net).send({ t: 'warp' });
+      this.voteNet(lp).send({ t: 'warp' });
       for (const e of chain) if (e.remote) e.remote.slack = 1.5;
     }
     audio.play('respawn');
     const where = this.cpLabel(this.cpOf(lp));
-    this.toast(chain.length > 1 ? `${lp.name} holt die Seilschaft zum ${where}` : `Zurück zum ${where}`);
-  }
-
-  warpTeam() {
-    if (this.mode === 'teams') {
-      // Je Team, das hier spielt, eine Meldung über einen Spieler dieses Teams
-      for (const team of new Set(this.locals.map((l) => l.team))) {
-        const lp = this.locals.find((l) => l.team === team && l.net?.online) || this.p1;
-        lp.net?.send({ t: 'warp' });
-      }
-    } else this.net.send({ t: 'warp' });
-    for (const lp of this.locals) this.respawn(lp, false);
-    const teams = new Set(this.locals.map((l) => l.team));
-    this.awaitWarp((r) => this.mode !== 'teams' || teams.has(r.team));
-    audio.play('respawn');
-    this.toast(`Team zum ${this.cpLabel(this.cpOf(this.p1))} geholt`);
+    this.toast(chain.length > 1 ? `Alle einverstanden – die Seilschaft geht zum ${where}` : `Zurück zum ${where}`);
   }
 
   setCheckpoint(i, announce, force, by = this.p1) {
