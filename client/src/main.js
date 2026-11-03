@@ -1,5 +1,5 @@
 import { buildLevel, sectionAtHeight } from './level.js';
-import { Colliders, createBody, stepBody, applyRope, releaseGrips, PHYS } from './physics.js';
+import { Colliders, createBody, stepBody, applyRope, releaseGrips, PHYS, topAt } from './physics.js';
 import { FixedStep } from './loop.js';
 import { Renderer } from './render.js';
 import { Net } from './net.js';
@@ -208,6 +208,7 @@ class Game {
     const lp = {
       id: 'local' + slot + '-' + Math.random().toString(36).slice(2, 6), name, slot, color: LOCAL_COLORS[slot % LOCAL_COLORS.length],
       body: createBody(this.level.spawn), input: null, net: null, jump: false, tension: 0, sendAcc: 0, online: false, team: 0,
+      warp: 0, // zählt jeden Respawn hoch (Mitspieler springen dann statt zu gleiten)
       // eigene Kamera für den Splitscreen
       cam: { yaw: this.camYaw || 0, pitch: 0.35, dist: 7.5, smooth: undefined },
     };
@@ -235,11 +236,12 @@ class Game {
       reset: () => this.resetToSafe(lp),
     });
     lp.pad = pad;
-    // Neben Spieler 1 auftauchen
-    const p = this.p1.body.pos;
-    lp.body.pos = [p[0] + (slot % 2 ? 0.8 : -0.8), p[1] + 0.5, p[2] + (slot > 1 ? 0.8 : -0.8)];
-    lp.body.vel = [0, 0, 0];
-    lp.body.grounded = false;
+    // Neben Spieler 1 auftauchen – steht der gerade nicht sicher, am Zwischenstopp
+    if (this.p1.body.grounded && this.standable(this.p1.body.pos)) {
+      lp.body.pos = this.besideOf(this.p1.body.pos, slot);
+      lp.body.vel = [0, 0, 0];
+      lp.body.grounded = false;
+    } else this.respawn(lp, false);
     this.connectLocals();
     if (announce) {
       this.toast(`${name} hängt sich ans Seil (Controller ${pad + 1})`);
@@ -316,14 +318,14 @@ class Game {
         if (this.mode === 'teams') this.view.setCheckpointReached(this.cpOf(this.p1));
         else this.setCheckpoint(m.cp || 0, false);
         // Neben einem Mitspieler (aus dem eigenen Team) starten, sonst am Zwischenstopp
-        const near = others.find((p) => p.s && p.s.p && (this.mode !== 'teams' || p.team === this.p1.team));
-        if (near) this.body.pos = [near.s.p[0], near.s.p[1] + 0.5, near.s.p[2]];
+        // (nur wenn er gerade fest auf einer Plattform steht – nicht am Seil hängend oder im Sprung)
+        const near = others.find((p) => p.s && p.s.p && p.s.g && this.standable(p.s.p) && (this.mode !== 'teams' || p.team === this.p1.team));
+        if (near) { this.body.pos = [near.s.p[0], near.s.p[1] + 0.3, near.s.p[2]]; this.body.vel = [0, 0, 0]; }
         else this.respawn(this.p1, false);
         for (const lp of this.locals) {
           if (lp === this.p1) continue;
-          const b = this.body.pos;
-          lp.body.pos = [b[0] + (lp.slot % 2 ? 0.8 : -0.8), b[1] + 0.3, b[2] + (lp.slot > 1 ? 0.8 : -0.8)];
-          lp.body.vel = [0, 0, 0];
+          if (near) { lp.body.pos = this.besideOf(near.s.p, lp.slot); lp.body.vel = [0, 0, 0]; }
+          else this.respawn(lp, false);
         }
         const n = others.length + this.locals.length;
         this.toast(others.length ? `Raum ${this.room}: ${n} Lageristen am Seil` : `Raum ${this.room} geöffnet – lade Freunde ein!`);
@@ -366,6 +368,13 @@ class Game {
         r.target = m.p; r.vel = m.v; r.yaw = m.y; r.grounded = m.g; r.braced = m.b; r.a = m.a;
         r.age = 0;
         if (!r.rpos) r.rpos = [...m.p];
+        // Respawn des Mitspielers: sofort dort hinspringen (nicht durch die Luft gleiten,
+        // sonst reißt das Seil die anderen mit) – und das Seil hängt wieder an ihm
+        if (typeof m.w === 'number' && m.w !== r.w) {
+          if (r.w !== undefined) r.rpos = [...m.p];
+          r.w = m.w;
+          r.slack = 0;
+        }
         r.maxY = Math.max(r.maxY || 0, m.p[1]);
         break;
       }
@@ -406,6 +415,7 @@ class Game {
         if (!hit.length) break;
         this.toast(`${m.name} holt das Team zum ${this.cpLabel(this.cpOf(hit[0]))}`);
         for (const lp of hit) this.respawn(lp, false);
+        this.awaitWarp((r) => this.mode !== 'teams' || m.team === undefined || r.team === m.team);
         break;
       }
       case 'restart':
@@ -413,6 +423,7 @@ class Game {
         this.setCheckpoint(0, false, true);
         this.mc.reset();
         for (const lp of this.locals) this.respawn(lp, true);
+        this.awaitWarp();
         $('finish').classList.add('hidden');
         this.finished = false;
         this.setInputEnabled(!this.paused);
@@ -513,6 +524,7 @@ class Game {
       // Rennstart: alle unten, ein Seil je Team
       this.setCheckpoint(0, false, true);
       for (const lp of this.locals) this.respawn(lp, true);
+      this.awaitWarp();
       this.toast(m.shuffle ? `${m.by} lost die Teams neu aus` : `${m.by} startet 2 gegen 2!`);
       for (const team of new Set(this.locals.map((l) => l.team))) {
         const names = this.everyone().filter((p) => p.team === team).map((p) => (p.local ? p.local.name : p.remote.name));
@@ -521,7 +533,7 @@ class Game {
     } else {
       // Zurück an ein gemeinsames Seil, am gemeinsamen Zwischenstopp
       this.setCheckpoint(m.cp || 0, false, true);
-      if (was === 'teams') for (const lp of this.locals) this.respawn(lp, false);
+      if (was === 'teams') { for (const lp of this.locals) this.respawn(lp, false); this.awaitWarp(); }
       this.toast(`${m.by}: wieder alle an einem Seil`);
     }
     audio.play('respawn');
@@ -602,6 +614,7 @@ class Game {
       this.setCheckpoint(0, false, true);
       this.mc.reset();
       for (const lp of this.locals) this.respawn(lp, true);
+      this.awaitWarp();
       this.finished = false;
       $('finish').classList.add('hidden');
       this.setInputEnabled(true);
@@ -833,6 +846,7 @@ class Game {
     for (const r of this.remotes.values()) {
       r.age += dt;
       if (r.hidden > 0) r.hidden -= dt;
+      if (r.slack > 0) r.slack -= dt;
       // Teleport (Neustart, Zwischenstopp): springen statt quer durchs Bild zu gleiten
       if (Math.hypot(r.target[0] - r.rpos[0], r.target[1] - r.rpos[1], r.target[2] - r.rpos[2]) > 8) r.rpos = [...r.target];
       const lead = Math.min(r.age, 0.15);
@@ -876,7 +890,7 @@ class Game {
       const r2 = (v) => Math.round(v * 100) / 100;
       for (const lp of locals) {
         const b = lp.body;
-        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(visYaw(b)), g: b.grounded, b: b.braced, a: animCode(b) | elementBits(b) });
+        lp.net?.send({ t: 's', p: b.pos.map(r2), v: b.vel.map(r2), y: r2(visYaw(b)), g: b.grounded, b: b.braced, a: animCode(b) | elementBits(b), w: lp.warp });
       }
     }
 
@@ -1020,7 +1034,7 @@ class Game {
   // Seilpaare (benachbarte Spieler einer Kette), ohne aufgeklatschte, fliegende und versteckte
   ropePairs() {
     const out = [];
-    const off = (c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0;
+    const off = (c) => c.local?.dead > 0 || c.local?.fly || c.remote?.hidden > 0 || c.remote?.slack > 0;
     for (const chain of this.chains()) {
       for (let i = 1; i < chain.length; i++) {
         const a = chain[i - 1], b = chain[i];
@@ -1060,7 +1074,7 @@ class Game {
       for (const j of [idx - 1, idx + 1]) {
         if (j < 0 || j >= chain.length) continue;
         const n = chain[j];
-        if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0) continue; // aufgeklatscht oder Freiflug: Seil ist ab
+        if (n.local?.dead > 0 || n.local?.fly || n.remote?.hidden > 0 || n.remote?.slack > 0) continue; // aufgeklatscht, Freiflug oder Respawn unterwegs: Seil ist ab
         const wrap = wraps.get(c.id)?.get(n.id) || null;
         // Nachbar am selben Bildschirm: echter Körper, sonst geglättete Netzposition
         if (n.local) tension = Math.max(tension, applyRope(body, n.local.body.pos, n.local.body.grounded, n.local.body.braced, this.world, dt, wrap));
@@ -1117,7 +1131,34 @@ class Game {
     lp.body.vel = [0, 0, 0];
     lp.body.grounded = false;
     releaseGrips(lp.body);
+    lp.warp = ((lp.warp || 0) + 1) & 1023;
     if (toStart) this.best = 0;
+  }
+
+  // Mitspieler am Seil, die gleich selbst zurückgesetzt werden: Bis ihre neue Position
+  // ankommt (oder höchstens 1,5 s), zieht das Seil nicht an ihrer alten Position –
+  // sonst reißt es frisch gespawnte Spieler in die Luft und von der Plattform.
+  awaitWarp(filter = () => true) {
+    for (const r of this.remotes.values()) if (filter(r)) r.slack = 1.5;
+  }
+
+  // Steht man an dieser Stelle (Füße) sicher auf etwas?
+  standable(p, edge = 0.25) {
+    for (const b of this.world.near(p, 1.5, 2)) {
+      if (b.hidden || b.min[0] + edge > p[0] || b.max[0] - edge < p[0] || b.min[2] + edge > p[2] || b.max[2] - edge < p[2]) continue;
+      const top = b.ramp || b.round ? topAt(b, p[0], p[2]) : b.max[1];
+      if (top > p[1] - 0.7 && top < p[1] + 0.35) return true;
+    }
+    return false;
+  }
+
+  // Platz neben einem Mitspieler (Slot bestimmt die Seite), nur wo Boden ist
+  besideOf(p, slot) {
+    for (const d of [0.8, 0.5, 0.3]) {
+      const q = [p[0] + (slot % 2 ? d : -d), p[1], p[2] + (slot > 1 ? d : -d)];
+      if (this.standable(q)) return [q[0], q[1] + 0.3, q[2]];
+    }
+    return [p[0], p[1] + 0.3, p[2]];
   }
 
   // Reset-Taste: zurück zum letzten Zwischenstopp. Am Seil kommt die ganze
@@ -1129,7 +1170,10 @@ class Game {
     this.lastReset = now;
     const chain = this.chains().find((c) => c.some((e) => e.local === lp)) || [{ local: lp }];
     for (const e of chain) if (e.local) this.respawn(e.local, false);
-    if (chain.some((e) => e.remote)) (lp.net?.online ? lp.net : this.net).send({ t: 'warp' });
+    if (chain.some((e) => e.remote)) {
+      (lp.net?.online ? lp.net : this.net).send({ t: 'warp' });
+      for (const e of chain) if (e.remote) e.remote.slack = 1.5;
+    }
     audio.play('respawn');
     const where = this.cpLabel(this.cpOf(lp));
     this.toast(chain.length > 1 ? `${lp.name} holt die Seilschaft zum ${where}` : `Zurück zum ${where}`);
@@ -1144,6 +1188,8 @@ class Game {
       }
     } else this.net.send({ t: 'warp' });
     for (const lp of this.locals) this.respawn(lp, false);
+    const teams = new Set(this.locals.map((l) => l.team));
+    this.awaitWarp((r) => this.mode !== 'teams' || teams.has(r.team));
     audio.play('respawn');
     this.toast(`Team zum ${this.cpLabel(this.cpOf(this.p1))} geholt`);
   }
