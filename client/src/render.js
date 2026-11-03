@@ -875,17 +875,25 @@ export class Renderer {
       const mesh = this.ropes[i];
       if (i >= pairs.length) { mesh.visible = false; continue; }
       mesh.visible = true;
-      const [a, b, L] = pairs[i];
-      const A = new THREE.Vector3(a[0], a[1] + 0.8, a[2]);
-      const B = new THREE.Vector3(b[0], b[1] + 0.8, b[2]);
-      const d = A.distanceTo(B);
-      const sag = d < L ? Math.sqrt(L * L - d * d) * 0.5 : 0;
-      const mid = A.clone().add(B).multiplyScalar(0.5);
-      mid.y -= sag;
-      const curve = new THREE.QuadraticBezierCurve3(A, mid, B);
+      const { a, b, pts, len, L } = pairs[i];
+      const A = new THREE.Vector3(a[0], a[1], a[2]);
+      const B = new THREE.Vector3(b[0], b[1], b[2]);
+      let curve;
+      if (pts && pts.length > 2) {
+        // Form aus der Partikelkette (liegt auf Kanten und Böden), Enden an den Figuren
+        const v = pts.map((q) => new THREE.Vector3(q[0], q[1], q[2]));
+        v[0] = A; v[v.length - 1] = B;
+        curve = new THREE.CatmullRomCurve3(v, false, 'centripetal');
+      } else {
+        const d = A.distanceTo(B);
+        const sag = d < L ? Math.sqrt(L * L - d * d) * 0.5 : 0;
+        const mid = A.clone().add(B).multiplyScalar(0.5);
+        mid.y -= sag;
+        curve = new THREE.QuadraticBezierCurve3(A, mid, B);
+      }
       mesh.geometry.dispose();
-      mesh.geometry = new THREE.TubeGeometry(curve, 20, 0.035, 5, false);
-      const tension = Math.min(1, Math.max(0, (d / L - 0.9) * 8));
+      mesh.geometry = new THREE.TubeGeometry(curve, 40, 0.035, 5, false);
+      const tension = Math.min(1, Math.max(0, (len / L - 0.9) * 8));
       mesh.material.color.setRGB(0.85 + 0.1 * tension, 0.7 - 0.45 * tension, 0.42 - 0.25 * tension);
     }
   }
