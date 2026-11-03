@@ -14,6 +14,7 @@ export const PHYS = {
   jumpBuffer: 0.14,
   rope: 4.5,
   ropeAttach: 0.85, // Seil am Gurt: so hoch über dem Fußpunkt
+  ropeFallVy: 2,    // ab dieser Fallgeschwindigkeit gilt man als frei fallend (Seil wirkt dann nicht)
   iceAccel: 9,
   bounce: 15.5,
   fanMax: 6.5,
@@ -763,6 +764,13 @@ export function ropeWeight(grounded, braced) {
 
 // wrap (optional, aus rope.js): Das Seil läuft über Kanten oder um Säulen. Dann zieht es
 // zum ersten Umlenkpunkt wrap.pt; wrap.rest ist die Seillänge von dort bis zum Partner.
+// Freier Fall: weder Boden noch Griff, nicht im Wasser, und es geht abwärts.
+// Fallen beide Partner frei, wirkt das Seil nicht – sonst drehen sie sich umeinander und
+// bremsen sich gegenseitig den Fall. b: Körper oder { grounded, braced, vel, swim }.
+export function freeFalling(b) {
+  return !b.grounded && !b.braced && !b.swim && !!b.vel && b.vel[1] < -PHYS.ropeFallVy;
+}
+
 export function applyRope(body, partnerPos, partnerGrounded, partnerBraced, world, dt, wrap = null) {
   let L = PHYS.rope;
   const ax = body.pos[0], ay = body.pos[1] + PHYS.ropeAttach, az = body.pos[2];
