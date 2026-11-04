@@ -23,6 +23,7 @@ export const PHYS = {
   ropeHold: 2,        // so viele Hängende hält ein Festhaltender gerade noch
   dragWalk: 0.5,      // Gegenlaufen beim Geschleiftwerden: so viel vom Lauftempo bleibt    // ab dieser Fallgeschwindigkeit gilt man als frei fallend (Seil wirkt dann nicht)
   iceAccel: 9,
+  iceBrake: 5,      // Festhalten auf Eis bremst nur so stark (m/s²): man rutscht ein Stück weiter
   bounce: 15.5,
   fanMax: 6.5,
   // Greifen und Klettern
@@ -649,8 +650,10 @@ export function stepBody(body, input, world, dt) {
     const idle = input.x === 0 && input.z === 0 && !body.braced;
     const slick = onIce || onSlide;
     const airKeep = idle && !windy && (!body.grounded || slick) ? (slick ? 0.05 : 0.15) : 1;
-    body.vel[0] += dvx * k * airKeep;
-    body.vel[2] += dvz * k * airKeep;
+    // Festhalten im Stand auf Eis: kein Vollstopp, nur schwaches Abbremsen
+    const iceHold = onIce && body.braced && !haul ? Math.min(1, (PHYS.iceBrake * dt) / dl) / k : 1;
+    body.vel[0] += dvx * k * airKeep * iceHold;
+    body.vel[2] += dvz * k * airKeep * iceHold;
   }
   // Rutsche: zieht bergab
   if (onSlide && !body.braced) {
