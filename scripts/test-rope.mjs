@@ -194,6 +194,34 @@ function hangers(n, { brace = false, walk = 0, seconds = 5 } = {}) {
   }
 }
 
+// An einer flachen Kiste verfangen: Die gerade Linie läuft über die Kiste hinweg, also rutscht
+// das straffe Seil ab und hält niemanden fest (zieht nicht zur Kiste oder nach unten). Eine hohe
+// Kiste (wie eine Säule) lenkt das Seil weiter um.
+function crate(h) {
+  const statics = [{ min: [-20, -1, -20], max: [20, 0, 20], mat: 'concrete' }, { min: [1.2, 0, -0.5], max: [2.2, h, 0.5], mat: 'wood' }];
+  const w = mk(statics);
+  const a = createBody([0, 0, 0]); const b = createBody([2.5, 0, 2]);
+  const rc = new RopeChain();
+  let wraps = 0;
+  for (let s = 0; s < 4 * 120; s++) {
+    const t = s * dt;
+    stepBody(a, { x: 0, z: 0, jump: false, brace: true }, w, dt);
+    stepBody(b, { x: 0.15, z: t > 0.5 ? -1 : 0, jump: false, brace: false }, w, dt);
+    rc.step(att(a), att(b), w, dt);
+    const wr = rc.wrapFor(1);
+    if (wr) wraps++;
+    applyRope(b, a.pos, a.grounded, a.braced, w, dt, wr);
+  }
+  return { wraps, straight: Math.hypot(b.pos[0] - a.pos[0], b.pos[2] - a.pos[2]) };
+}
+{
+  const low = crate(0.5), high = crate(3);
+  console.log(`Seilkette: flache Kiste ${low.wraps} Umlenk-Schritte (Abstand ${low.straight.toFixed(2)} m), hohe Kiste ${high.wraps} (Abstand ${high.straight.toFixed(2)} m)`);
+  want(low.wraps === 0, 'An flacher Kiste verfangenes Seil lenkt nicht um');
+  want(low.straight > PHYS.rope - 0.1, 'An flacher Kiste verfangenes Seil hält nicht früher auf');
+  want(high.wraps > 0 && high.straight < PHYS.rope - 0.5, 'Hohe Kiste lenkt das Seil weiter um');
+}
+
 // Laufzeit: eine Kette in einem vollen Level
 {
   const statics = [{ min: [-20, -1, -20], max: [20, 0, 20], mat: 'concrete', big: true }];
