@@ -1,6 +1,9 @@
 // WebSocket-Verbindung zum Raum (Durable Object). Fällt bei Fehlern auf Solo zurück.
 
 // Kennung dieses Browser-Tabs: alle lokalen Spieler hier teilen sie (2 gegen 2: gleiches Team)
+// Ohne Nachricht vom Server so lange gilt die Verbindung als verloren (wie auf dem Server)
+const SILENT_MS = 30000;
+
 const DEVICE = Math.random().toString(36).slice(2, 10);
 
 export class Net {
@@ -26,12 +29,18 @@ export class Net {
       ws.send(JSON.stringify({ t: 'hello', name: this.name, dev: DEVICE }));
     };
     ws.onmessage = (ev) => {
+      this.lastRx = Date.now();
       let m;
       try { m = JSON.parse(ev.data); } catch { return; }
       if (m.t === 'welcome') {
         this.online = true;
         this.offset = m.serverTime - Date.now();
-        this.pingTimer = setInterval(() => this.send({ t: 'ping', c: Date.now() }), 2000);
+        this.pingTimer = setInterval(() => {
+          // 30 s nichts vom Server gehört: Verbindung ist tot, auch wenn der Browser
+          // es noch nicht gemerkt hat (der Server hat uns dann schon entfernt)
+          if (Date.now() - this.lastRx > SILENT_MS) { this.drop(); return; }
+          this.send({ t: 'ping', c: Date.now() });
+        }, 2000);
         this.send({ t: 'ping', c: Date.now() });
       }
       if (m.t === 'pong') {
@@ -46,13 +55,23 @@ export class Net {
       }
       this.h.message?.(m);
     };
-    ws.onclose = () => {
-      clearInterval(this.pingTimer);
-      const was = this.online;
-      this.online = false;
-      this.h.offline?.(was);
-    };
+    ws.onclose = () => this.lost();
     ws.onerror = () => {};
+  }
+
+  lost() {
+    clearInterval(this.pingTimer);
+    if (this.ws) { this.ws.onclose = null; this.ws.onmessage = null; }
+    const was = this.online;
+    this.online = false;
+    this.h.offline?.(was);
+  }
+
+  // Stumme Verbindung aufgeben, ohne auf das (evtl. nie kommende) close-Ereignis zu warten
+  drop() {
+    const ws = this.ws;
+    this.lost();
+    try { ws?.close(); } catch { /* egal */ }
   }
 
   // Absichtlich trennen (lokaler Mitspieler steigt aus): kein Offline-Hinweis
