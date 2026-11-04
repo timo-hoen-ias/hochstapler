@@ -6,6 +6,10 @@ import { hostOf, modeError, assignTeams, teamForNewcomer } from '../client/src/t
 
 const MAX_PLAYERS = 4;
 const COLORS = ['#ff7a1a', '#22c8e5', '#9be22a', '#ff4fa3'];
+// Spieler ohne Lebenszeichen (Clients pingen alle 2 s) fliegen nach 30 s raus,
+// auch wenn der WebSocket nie sauber geschlossen wurde (WLAN weg, Handy im Standby …)
+const SILENT_KICK_MS = 30000;
+const CHECK_MS = 5000;
 
 function roomCode(raw) {
   const code = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
@@ -36,6 +40,25 @@ export class Room extends DurableObject {
     // Rätsel-Maschinen: Besetzer je Platz ("m:st" → Spieler-ID) und letzter Zustand je Maschine
     this.machOcc = new Map();
     this.machState = new Map();
+    // Letztes Lebenszeichen je Spieler-ID (ms). Fehlt ein Eintrag (z. B. nach dem
+    // Aufwachen aus dem Ruhezustand), zählt die Prüfung ab jetzt.
+    this.seen = new Map();
+  }
+
+  // Regelmäßige Prüfung auf stumme Verbindungen, solange jemand im Raum ist
+  async ensureAlarm() {
+    if ((await this.ctx.storage.getAlarm()) == null) await this.ctx.storage.setAlarm(Date.now() + CHECK_MS);
+  }
+
+  async alarm() {
+    const now = Date.now();
+    for (const p of this.players()) {
+      if (!this.seen.has(p.id)) { this.seen.set(p.id, now); continue; }
+      if (now - this.seen.get(p.id) < SILENT_KICK_MS) continue;
+      try { p.ws.close(4001, 'Zeitüberschreitung'); } catch { /* schon zu */ }
+      await this.leave(p.ws);
+    }
+    if (this.players().length) await this.ctx.storage.setAlarm(Date.now() + CHECK_MS);
   }
 
   machSnapshot() {
@@ -91,6 +114,7 @@ export class Room extends DurableObject {
     let m;
     try { m = JSON.parse(raw); } catch { return; }
     const me = ws.deserializeAttachment() || {};
+    if (me.id) this.seen.set(me.id, Date.now());
 
     switch (m.t) {
       case 'hello': {
@@ -112,6 +136,8 @@ export class Room extends DurableObject {
         // Gerätekennung: lokale Mitspieler am selben Bildschirm kommen ins selbe Team
         const dev = String(m.dev || '').slice(0, 16);
         ws.serializeAttachment({ ...info, dev });
+        this.seen.set(id, Date.now());
+        await this.ensureAlarm();
 
         // Schichtzeit läuft nur, solange jemand im Raum ist, und summiert sich über Sitzungen
         let startedAt = await this.ctx.storage.get('startedAt');
@@ -338,6 +364,7 @@ export class Room extends DurableObject {
     if (!a || !a.id) return;
     ws.serializeAttachment({ id: null });
     this.lastState.delete(a.id);
+    this.seen.delete(a.id);
     for (const [key, id] of this.machOcc) if (id === a.id) this.machOcc.delete(key);
     this.broadcast({ t: 'leave', id: a.id, name: a.name }, ws);
     // Letzter Spieler raus: gespielte Zeit sichern, Uhr anhalten
