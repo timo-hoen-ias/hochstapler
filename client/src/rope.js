@@ -15,6 +15,7 @@ export const ROPE = {
   teleport: 1.5,   // springt ein Ende weiter als das in einem Schritt: Kette neu anlegen
   settle: 0.25,    // so lange nach dem Neuanlegen gilt nur die gerade Linie
   maxExtra: 1.5,   // Seilweg länger als Seil + das: Kette hat sich verhakt -> neu anlegen
+  taut: 0.97,      // Enden so weit auseinander (Anteil der Seillänge) und Sicht frei: Kette rutscht ab
 };
 
 const solid = (b) => !b.hidden;
@@ -83,6 +84,25 @@ function clear(a, b, cols, s) {
   return true;
 }
 
+// Kann ein straffes Seil über die Box, an der Umlenkpunkt w liegt, hinweg rutschen? Ja, wenn
+// die gerade Linie a–b dort höher verläuft als die Oberkante (Kiste flacher als das Seil).
+// Säulen und Wände reichen über die Linie: Dort bleibt das Seil umgelenkt.
+function slipsOver(w, a, b, cols) {
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+  const t = l2 > 1e-9 ? Math.max(0, Math.min(1, ((w[0] - a[0]) * d[0] + (w[1] - a[1]) * d[1] + (w[2] - a[2]) * d[2]) / l2)) : 0;
+  const ly = a[1] + d[1] * t;
+  const m = ROPE.radius + 0.06;
+  let top = -Infinity;
+  for (const box of cols) {
+    if (!solid(box)) continue;
+    if (w[0] < box.min[0] - m || w[0] > box.max[0] + m || w[2] < box.min[2] - m || w[2] > box.max[2] + m) continue;
+    if (w[1] < box.min[1] - m || w[1] > topOf(box, w[0], w[2]) + m) continue;
+    top = Math.max(top, topOf(box, w[0], w[2]));
+  }
+  return ly > top + ROPE.radius; // frei in der Luft (nur Durchhang): rutscht auch
+}
+
 const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
 
 export class RopeChain {
@@ -92,6 +112,7 @@ export class RopeChain {
     this.cols = [];
     this.path = null; // Umlenkpunkte (ohne die Enden)
     this.len = 0;     // Länge des gespannten Seilwegs
+    this.snag = false;  // Kette nur an einer flachen Kiste verfangen (rutscht ab, sobald straff)?
   }
 
   reset(a, b) {
@@ -179,6 +200,9 @@ export class RopeChain {
       }
     }
     this.solvePath(a, b, cols);
+    // Sehen sich die Enden frei, zieht das Seil gerade: Hat sich die Kette nur an einer Kiste
+    // verfangen, rutscht sie ab, sobald das Seil straff wird (statt die Spieler zur Kiste zu ziehen)
+    if (this.snag && dist(a, b) > L * ROPE.taut) { this.reset(a, b); this.age = ROPE.settle; this.path = []; this.len = dist(a, b); }
     return this;
   }
 
@@ -199,11 +223,16 @@ export class RopeChain {
     }
     this.path = path;
     this.len = len;
+    // Verfangen statt umgelenkt: Sicht zwischen den Enden frei und die gerade Linie läuft über
+    // jede Kiste hinweg, an der die Kette hängt (über/hinter einer flachen Kiste). Ein straffes
+    // Seil rutscht dann darüber ab. Um Säulen und über Kanten (Sicht verdeckt) bleibt die Umlenkung.
+    this.snag = path.length > 0 && clear(a, b, cols, s) && path.every((w) => slipsOver(w, a, b, cols));
   }
 
   // Für die Seilphysik eines Endes: erster Umlenkpunkt und Restlänge dahinter (null = gerade Linie)
   wrapFor(end) {
-    if (!this.path || !this.path.length || this.age < ROPE.settle) return null;
+    // Nur verfangen: gerade Linie (die Kette zieht niemanden zur Kiste)
+    if (this.snag || !this.path || !this.path.length || this.age < ROPE.settle) return null;
     if (this.len > PHYS.rope + ROPE.maxExtra) { this.p = null; return null; } // verhakt: neu anlegen
     const path = this.path;
     const first = end === 0 ? path[0] : path[path.length - 1];
